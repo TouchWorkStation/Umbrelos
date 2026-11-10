@@ -27,7 +27,7 @@ const catIcon = (c: string) => (hasIcon(c) ? c : 'category')
 // Shown first in "Featured" when present in the catalog; otherwise any app with screenshots.
 const FEATURED = ['immich', 'nextcloud', 'home-assistant', 'jellyfin', 'plex', 'bitcoin', 'ollama', 'vaultwarden', 'pi-hole', 'tailscale']
 
-export function Store({onOpenInstalled}: {onOpenInstalled: (app: UserApp) => void}) {
+export function Store({onOpenInstalled, onBack}: {onOpenInstalled: (app: UserApp) => void; onBack?: () => void}) {
 	const registry = useRegistry()
 	const apps = useApps()
 	const [q, setQ] = useState('')
@@ -89,9 +89,16 @@ export function Store({onOpenInstalled}: {onOpenInstalled: (app: UserApp) => voi
 
 	return (
 		<div className="stagger">
-			<div>
-				<h1 className="title">App Store</h1>
-				<p className="subtitle">{registry.isLoading ? 'Loading the catalog…' : `${all.length} apps for your Umbrel`}</p>
+			<div className="page-head">
+				{onBack && (
+					<button className="round-btn" aria-label="Back" onClick={onBack}>
+						<Icon name="back" size={20} />
+					</button>
+				)}
+				<div>
+					<h1 className="title">App Store</h1>
+					<p className="subtitle">{registry.isLoading ? 'Loading the catalog…' : `${all.length} apps for your Umbrel`}</p>
+				</div>
 			</div>
 			<SearchField value={q} onChange={setQ} placeholder="Search apps" />
 			<div className="chips" role="tablist" aria-label="Categories">

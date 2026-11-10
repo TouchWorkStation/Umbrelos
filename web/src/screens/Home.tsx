@@ -3,7 +3,7 @@ import {useMemo} from 'react'
 import type {UserApp} from '../api'
 import {useApps, useCpu, useDisk, useMemory, useRecent, useTemp, useUpdates, useUptime, useUser} from '../data'
 import {Icon} from '../icons'
-import {AppIcon, Ring, TerminalIcon, appStatus, bytes, duration, greeting, haptic, isAppBusy, levelColor, pct, today} from '../ui'
+import {AppIcon, Ring, StoreIcon, TerminalIcon, appStatus, bytes, duration, greeting, haptic, isAppBusy, levelColor, pct, today} from '../ui'
 
 export function Gauges({onClick}: {onClick?: () => void}) {
 	const cpu = useCpu()
@@ -179,6 +179,10 @@ export function Home({onOpenApp, go, onTerminal}: {onOpenApp: (app: UserApp) => 
 					</div>
 				) : (
 					<div className="app-grid">
+						<button className="app-tile" onClick={() => go('store')} aria-label="App Store">
+							<StoreIcon size={60} />
+							<span className="name">App Store</span>
+						</button>
 						{onTerminal && (
 							<button className="app-tile" onClick={() => onTerminal()} aria-label="Terminal">
 								<TerminalIcon size={60} />

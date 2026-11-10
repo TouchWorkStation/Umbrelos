@@ -18,7 +18,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.6.0'
+export const VERSION = '0.7.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -96,10 +96,32 @@ export const ALLOWED = {
 	// Settings: advanced (umbreld itself re-checks the password for factory reset)
 	'system.logs': 'query',
 	'system.factoryReset': 'mutation',
+	// Files (NAS)
+	'files.list': 'query',
+	'files.search': 'query',
+	'files.recents': 'query',
+	'files.favorites': 'query',
+	'files.addFavorite': 'mutation',
+	'files.removeFavorite': 'mutation',
+	'files.createDirectory': 'mutation',
+	'files.rename': 'mutation',
+	'files.copy': 'mutation',
+	'files.move': 'mutation',
+	'files.trash': 'mutation',
+	'files.restore': 'mutation',
+	'files.delete': 'mutation',
+	'files.emptyTrash': 'mutation',
+	'files.operationProgress': 'query',
+	'files.shares': 'query',
+	'files.addShare': 'mutation',
+	'files.removeShare': 'mutation',
+	'files.sharePassword': 'query',
+	'files.externalDevices': 'query',
+	'files.unmountExternalDevice': 'mutation',
 }
 
 // Long-running mutations: umbreld answers when the operation finishes.
-const SLOW = new Set(['apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname'])
+const SLOW = new Set(['files.copy', 'files.move', 'files.delete', 'files.emptyTrash', 'files.search', 'files.list', 'apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname'])
 
 function parseCookies(header = '') {
 	const out = {}
@@ -517,29 +539,136 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 		return {token, cookie, renewedAt: Date.now()}
 	}
 
-	async function consoleTicket(sid, target = 'machines') {
+	// The server-held browser-style session: dashboard token + browser cookie. umbreld
+	// requires it for WebSocket tickets and the file HTTP API; native sessions can't use those.
+	async function browserAuth(sid) {
 		const umbrel = getClient()
 		const session = store.getSession(sid)
 		if (!umbrel || !session) throw new UmbrelError('Signed out', {code: 'UNAUTHORIZED', status: 401})
 		if (!session.console) {
-			throw new UmbrelError('Sign out and back in to use the console', {code: 'CONSOLE_SESSION_REQUIRED', status: 409})
+			throw new UmbrelError('Sign out and back in to use this', {code: 'CONSOLE_SESSION_REQUIRED', status: 409})
 		}
 		const auth = {token: session.console.token, cookie: session.console.cookie}
+		// Browser sessions last 7 days from their last renewal; keep ours fresh.
+		if (Date.now() - session.console.renewedAt > 24 * 60 * 60 * 1000) {
+			await umbrel.mutation('user.renewToken', undefined, auth).catch(() => {})
+			await store.updateSession(sid, {console: {...session.console, renewedAt: Date.now()}})
+		}
+		return auth
+	}
+	const lostBrowserSession = async (sid, error) => {
+		if (error instanceof UmbrelError && error.code === 'UNAUTHORIZED') {
+			await store.updateSession(sid, {console: null})
+			return new UmbrelError('Sign out and back in to use this', {code: 'CONSOLE_SESSION_REQUIRED', status: 409})
+		}
+		return error
+	}
+
+	async function consoleTicket(sid, target = 'machines') {
+		const auth = await browserAuth(sid)
 		try {
-			// Browser sessions last 7 days from their last renewal; keep ours fresh.
-			if (Date.now() - session.console.renewedAt > 24 * 60 * 60 * 1000) {
-				await umbrel.mutation('user.renewToken', undefined, auth)
-				await store.updateSession(sid, {console: {...session.console, renewedAt: Date.now()}})
-			}
-			return await umbrel.mutation('user.createWebSocketTicket', {target}, auth)
+			return await getClient().mutation('user.createWebSocketTicket', {target}, auth)
 		} catch (error) {
-			if (error instanceof UmbrelError && error.code === 'UNAUTHORIZED') {
-				await store.updateSession(sid, {console: null})
-				throw new UmbrelError('Sign out and back in to use the console', {code: 'CONSOLE_SESSION_REQUIRED', status: 409})
-			}
-			throw error
+			throw await lostBrowserSession(sid, error)
 		}
 	}
+
+	// ---- Files: downloads, previews, thumbnails and uploads ---------------------
+	// umbreld serves file bytes over plain HTTP, authorised by the browser cookie plus
+	// a session-wide URL token. We fetch both server-side and stream the bytes through.
+	const urlTokens = new Map() // sid -> {token, at}
+	async function fileUrlToken(sid) {
+		const cached = urlTokens.get(sid)
+		if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached.token
+		const auth = await browserAuth(sid)
+		try {
+			const token = await getClient().query('user.getHttpApiToken', undefined, auth)
+			urlTokens.set(sid, {token, at: Date.now()})
+			return token
+		} catch (error) {
+			throw await lostBrowserSession(sid, error)
+		}
+	}
+	const PASS_HEADERS = ['content-type', 'content-length', 'content-disposition', 'content-range', 'accept-ranges', 'last-modified', 'etag']
+	const fileGet = (kind) => async (req, res) => {
+		try {
+			if (!store.getSession(req.sid)) return res.status(401).json({error: {code: 'UNAUTHORIZED', message: 'Signed out'}})
+			const auth = await browserAuth(req.sid)
+			const token = await fileUrlToken(req.sid)
+			const url = new URL(`${getClient().baseUrl}/api/files/${kind}`)
+			if (kind === 'thumbnail') {
+				if (!/^[\w.-]{1,200}$/.test(req.params.name)) return res.status(404).end()
+				url.pathname += `/${req.params.name}`
+			}
+			for (const p of [req.query.path].flat()) if (typeof p === 'string') url.searchParams.append('path', p)
+			url.searchParams.set('token', token)
+			const upstream = await fetchImpl(url, {
+				headers: {cookie: auth.cookie, ...(req.headers.range ? {range: req.headers.range} : {})},
+				signal: AbortSignal.timeout(6 * 60 * 60 * 1000),
+			})
+			if (upstream.status === 401) urlTokens.delete(req.sid)
+			res.status(upstream.status)
+			for (const h of PASS_HEADERS) {
+				const v = upstream.headers.get(h)
+				if (v) res.setHeader(h, v)
+			}
+			res.setHeader('Cache-Control', kind === 'thumbnail' ? 'private, max-age=3600' : 'private, no-store')
+			res.setHeader('X-Content-Type-Options', 'nosniff')
+			// Previews render inline but sandboxed, so a file can't script this app.
+			if (kind === 'view') res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'")
+			if (!upstream.body) return res.end()
+			const {Readable} = await import('node:stream')
+			const body = Readable.fromWeb(upstream.body)
+			req.on('close', () => body.destroy())
+			body.on('error', () => res.destroy())
+			body.pipe(res)
+		} catch (error) {
+			sendError(res, error)
+		}
+	}
+	api.get('/files/download', fileGet('download'))
+	api.get('/files/view', fileGet('view'))
+	api.get('/files/thumbnail/:name', fileGet('thumbnail'))
+
+	api.post('/files/upload', async (req, res) => {
+		try {
+			if (!store.getSession(req.sid)) return res.status(401).json({error: {code: 'UNAUTHORIZED', message: 'Signed out'}})
+			const path = req.query.path
+			if (typeof path !== 'string' || !path.startsWith('/')) return res.status(400).json({error: {code: 'BAD_REQUEST', message: 'path is required'}})
+			const collision = ['error', 'keep-both', 'replace'].includes(req.query.collision) ? req.query.collision : 'keep-both'
+			const auth = await browserAuth(req.sid)
+			const url = new URL(`${getClient().baseUrl}/api/files/upload`)
+			url.searchParams.set('path', path)
+			url.searchParams.set('collision', collision)
+			const {Readable} = await import('node:stream')
+			const upstream = await fetchImpl(url, {
+				method: 'POST',
+				headers: {
+					authorization: `Bearer ${auth.token}`,
+					cookie: auth.cookie,
+					'content-type': 'application/octet-stream',
+					...(req.headers['content-length'] ? {'content-length': req.headers['content-length']} : {}),
+				},
+				body: Readable.toWeb(req),
+				duplex: 'half',
+				signal: AbortSignal.timeout(12 * 60 * 60 * 1000),
+			})
+			const text = await upstream.text()
+			let body
+			try {
+				body = JSON.parse(text)
+			} catch {
+				body = {}
+			}
+			if (!upstream.ok) {
+				const message = upstream.status === 507 ? 'Not enough free space on your Umbrel' : upstream.status === 409 ? 'A file with that name already exists' : (body.error ?? `Upload failed (HTTP ${upstream.status})`)
+				return res.status(upstream.status === 401 ? 409 : upstream.status).json({error: {code: 'UPLOAD_FAILED', message}})
+			}
+			res.json({ok: true, path: body.path ?? path})
+		} catch (error) {
+			sendError(res, error)
+		}
+	})
 
 	// Asked before the socket opens so the app can show a clear reason when it can't.
 	api.get('/console/check', async (req, res) => {

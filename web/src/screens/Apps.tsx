@@ -3,7 +3,7 @@ import {useMemo, useState} from 'react'
 import type {UserApp} from '../api'
 import {useAction, useApps, useUpdates} from '../data'
 import {Icon} from '../icons'
-import {AppIcon, Segmented, StatusPill, TerminalIcon, appStatus, haptic, isAppBusy, useConfirm} from '../ui'
+import {AppIcon, Segmented, StatusPill, StoreIcon, TerminalIcon, appStatus, haptic, isAppBusy, useConfirm} from '../ui'
 
 type Filter = 'all' | 'running' | 'stopped' | 'updates'
 
@@ -22,7 +22,7 @@ export function SearchField({value, onChange, placeholder}: {value: string; onCh
 	)
 }
 
-export function Apps({onOpenApp, onTerminal}: {onOpenApp: (app: UserApp) => void; onTerminal?: () => void}) {
+export function Apps({onOpenApp, onTerminal, onStore}: {onOpenApp: (app: UserApp) => void; onTerminal?: () => void; onStore?: () => void}) {
 	const apps = useApps()
 	const updates = useUpdates()
 	const action = useAction()
@@ -77,6 +77,26 @@ export function Apps({onOpenApp, onTerminal}: {onOpenApp: (app: UserApp) => void
 					{apps.isLoading ? 'Loading…' : `${counts.running} running${counts.stopped ? ` · ${counts.stopped} stopped` : ''}${counts.updates ? ` · ${counts.updates} to update` : ''}`}
 				</p>
 			</div>
+			<div className="system-tiles">
+				{onStore && (
+					<button className="glass system-tile press" onClick={() => (haptic(6), onStore())}>
+						<StoreIcon size={46} />
+						<span>
+							<b>App Store</b>
+							<small>Find new apps</small>
+						</span>
+					</button>
+				)}
+				{onTerminal && (
+					<button className="glass system-tile press" onClick={() => (haptic(6), onTerminal())}>
+						<TerminalIcon size={46} />
+						<span>
+							<b>Terminal</b>
+							<small>Command line</small>
+						</span>
+					</button>
+				)}
+			</div>
 			<SearchField value={q} onChange={setQ} placeholder={`Search ${list.length} apps`} />
 			<Segmented value={filter} options={segments} onChange={setFilter} label="Filter apps" />
 			{filter === 'updates' && counts.updates > 1 && (
@@ -107,16 +127,6 @@ export function Apps({onOpenApp, onTerminal}: {onOpenApp: (app: UserApp) => void
 				</div>
 			) : (
 				<div className="glass group" style={{'--inset': '74px'} as React.CSSProperties}>
-					{onTerminal && filter === 'all' && (!q || 'terminal shell'.includes(q.toLowerCase())) && (
-						<button className="row" onClick={() => onTerminal()}>
-							<TerminalIcon size={46} />
-							<span className="main">
-								<b>Terminal</b>
-								<span>Command line on your Umbrel</span>
-							</span>
-							<Icon name="chevron" size={18} className="chev" />
-						</button>
-					)}
 					{shown.map((app) => {
 						const status = appStatus(app.state, updateMap.has(app.id))
 						const busy = isAppBusy(app.state)

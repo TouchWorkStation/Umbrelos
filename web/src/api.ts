@@ -66,7 +66,7 @@ export const logout = () => post('/api/auth/logout')
 // ---- umbreld shapes ---------------------------------------------------------
 
 export type Wallpaper = {id: string; brandColorHsl: string | null}
-export type User = {userId: string; name: string; role: 'owner' | 'member'; avatarUrl?: string; wallpaper?: Wallpaper}
+export type User = {userId: string; name: string; role: 'owner' | 'member'; avatarUrl?: string; wallpaper?: Wallpaper; sambaUsername?: string}
 
 export type AppState =
 	| 'unknown'
@@ -170,3 +170,15 @@ export type ActiveSession = {
 	current: boolean
 	client: {type: 'native'; id?: string; platform?: string; deviceClass?: string; appVersion?: string} | {type: 'browser'; userAgent?: string}
 }
+
+export type FileEntry = {
+	name: string
+	path: string
+	type: string // 'directory' or a mime type
+	size?: number
+	modified: number
+	operations: ('copy' | 'move' | 'rename' | 'trash' | 'restore' | 'delete' | 'favorite' | 'unarchive' | 'share' | 'writable')[]
+	thumbnail?: string
+}
+export type Listing = FileEntry & {files: FileEntry[]; hasMore?: boolean; totalFiles?: number; truncatedAt?: number}
+export type SmbShare = {name: string; path: string; available: boolean; sharename: string}

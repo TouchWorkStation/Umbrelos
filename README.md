@@ -19,7 +19,8 @@ A phone-first interface for umbrelOS. It runs beside your Umbrel, signs in the s
 
 - **Home**: live CPU, memory and storage rings, temperature and uptime, app updates, recently opened apps, and an app grid. Stopped apps are dimmed, apps with updates get a badge, and busy apps show a progress ring.
 - **Apps**: search and filters. Tap an app to open it, start, stop, restart, update, view live logs, or uninstall (with confirmation). There is also *Update all*.
-- **App Store**: featured apps with screenshots, a shelf for each category, and search. Get and Open buttons sit on every app. App pages show the version, category, size, gallery and description. Install is guided: it lists the folders and GPU access the app will get, and blocks the install until missing dependencies are installed.
+- **Files** (in the dock): your Umbrel as a NAS. See [Files](#files).
+- **App Store** (a tile next to Terminal on Home and in Apps): featured apps with screenshots, a shelf for each category, and search. Get and Open buttons sit on every app. App pages show the version, category, size, gallery and description. Install is guided: it lists the folders and GPU access the app will get, and blocks the install until missing dependencies are installed.
 - **Machines**: your VMs with their live state. **Create** a machine from umbrelOS's OS catalog (Ubuntu, Debian, Fedora, Alpine, Windows…) with per-OS starting specs for cores, memory and disk. Start, shut down, restart, force stop, delete (with confirmation), and a full-screen touch **console**.
 - **Settings** (gear button): name, password, two-factor authentication, umbrelOS wallpaper, signed-in devices (sign out one or all others), software update with live progress and stable/beta channel, device name, IP address, Wi-Fi, Tor, public DNS, system logs, restart, shut down and factory reset (password + typing RESET). Users, backups, storage, static IP and app-store sources link to the umbrelOS dashboard.
 - **System**: live CPU and memory charts, temperature, uptime, a storage breakdown, a ranked "what's using it" list for CPU, memory and storage, umbrelOS update status, and restart or shut down the Umbrel.
@@ -63,9 +64,25 @@ curl -fsSL https://raw.githubusercontent.com/TouchWorkStation/Umbrelos/main/inst
 
 **Windows:** install Node.js 20+ and double-click `start-windows.cmd`. **By hand:** `npm ci && npm run build && node server/cli.mjs --umbrel 192.168.1.50`.
 
+## Files
+
+| ![Files](docs/files.png) | ![Photos grid](docs/files-grid.png) |
+|---|---|
+
+Files is in the dock and works through umbreld's own file API, so it sees what umbrelOS's Files app sees: Home, App data, external drives, network shares and Trash.
+
+- **Browse**: places, recents, favorites, storage left, a list or grid view with photo thumbnails, sort by name, date or size, and search across all files.
+- **Open**: tap a file to preview it (photos full screen, video, audio, PDF, text). From there you can share it to other phone apps, save it to the phone, rename, move, copy, favorite or trash it.
+- **Select**: long-press to select several items, then save them as a zip, move, copy or trash them.
+- **Add**: the + button uploads photos or files with progress (name clashes keep both) or makes a new folder.
+- **Share on your network**: any folder can be shared over SMB. The sheet shows the `smb://` and Windows addresses, the username and (on tap) the password, and each one copies with a tap.
+- **Trash**: restore, delete forever, or empty Trash (each asks first).
+
+Downloads, previews and uploads stream through the Touch server using your existing umbrelOS session; the phone never holds an Umbrel token. Previews are served with a locked-down sandbox CSP so an uploaded HTML or SVG file can't run scripts.
+
 ## Terminal
 
-**Terminal** is the first app on Home and in Apps. It opens a full-screen shell on your Umbrel, the same one as umbrelOS's Settings → Terminal. Every running app also has a **Terminal** button in its sheet that opens a shell inside that app's container. The bottom row has the keyboard button plus esc, tab, sticky ctrl/alt, ^C, arrows, `| ~ / -`, home and end; the button at the top right pastes. The shell's size is fixed when it starts (umbreld has no resize), so rotating the phone rescales the text instead. Owner account only, like umbrelOS.
+**Terminal** sits next to **App Store** at the top of Apps and in the Home app grid. It opens a full-screen shell on your Umbrel, the same one as umbrelOS's Settings → Terminal. Every running app also has a **Terminal** button in its sheet that opens a shell inside that app's container. The bottom row has the keyboard button plus esc, tab, sticky ctrl/alt, ^C, arrows, `| ~ / -`, home and end; the button at the top right pastes. The shell's size is fixed when it starts (umbreld has no resize), so rotating the phone rescales the text instead. Owner account only, like umbrelOS.
 
 ## VM console
 
@@ -98,7 +115,8 @@ The procedure names and data shapes come from getumbrel/umbrel at the umbrelOS 2
 
 ## Not yet
 
-- Files and Photos. umbreld serves these through separate `/api/files` endpoints, which haven't been wired in yet.
+- A dedicated Photos timeline (photos browse fine in Files).
+- Archive extract/compress, and connecting new network shares from other machines (use the umbrelOS dashboard).
 - VM audio.
 - Settings that change the system (users, Wi-Fi, backups). These are deliberately left out of the allowlist for now.
 

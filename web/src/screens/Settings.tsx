@@ -357,7 +357,7 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 			)}
 
 			<Group title="More" footer="Users, backups, storage, static IP and app-store sources are in the umbrelOS dashboard.">
-				{owner && <Row icon="file" color="#8e8e93" label="System logs" onClick={() => setSheet('logs')} />}
+				{owner && <Row icon="logfile" color="#8e8e93" label="System logs" onClick={() => setSheet('logs')} />}
 				<Row icon="open" color="var(--blue)" label="Everything else in umbrelOS" href={settingsUrl} />
 				{owner && <Row icon="restart" color="var(--peach)" label="Restart Umbrel" onClick={() => power('restart')} />}
 				{owner && <Row icon="power" color="var(--red)" label="Shut down Umbrel" onClick={() => power('shutdown')} />}

@@ -21,7 +21,79 @@ export function startFakeUmbreld({
 	const devices = new Map() // device token -> sessionId
 	const calls = []
 	const browser = new Map() // dashboard token -> browser-session cookie value
+	const urlTokens = new Map() // file URL token -> browser-session cookie value
 	const tickets = new Set()
+	// In-memory file tree for the Files tab: path -> {type, size, modified, data?}
+	const now = Date.now()
+	const fsTree = new Map([
+		['/Home', {type: 'directory'}],
+		['/Home/Documents', {type: 'directory'}],
+		['/Home/Photos', {type: 'directory'}],
+		['/Home/Movies', {type: 'directory'}],
+		['/Home/Downloads', {type: 'directory'}],
+		['/Home/Documents/Budget 2026.xlsx', {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 48210}],
+		['/Home/Documents/Notes.txt', {type: 'text/plain', data: Buffer.from('Hello from your Umbrel.\nThis is a text file.\n')}],
+		['/Home/Documents/Service manual.pdf', {type: 'application/pdf', size: 3_400_000}],
+		['/Home/Photos/Sunset.jpg', {type: 'image/jpeg', wallpaper: 9}],
+		['/Home/Photos/Mountains.jpg', {type: 'image/jpeg', wallpaper: 12}],
+		['/Home/Photos/Lake.jpg', {type: 'image/jpeg', wallpaper: 17}],
+		['/Home/Photos/Coast.jpg', {type: 'image/jpeg', wallpaper: 20}],
+		['/Home/Movies/Trip.mp4', {type: 'video/mp4', size: 812_000_000}],
+		['/Home/Downloads/umbrelos.iso', {type: 'application/x-iso9660-image', size: 1_900_000_000}],
+		['/Home/backup.zip', {type: 'application/zip', size: 22_000_000}],
+		['/Apps', {type: 'directory'}],
+		['/Apps/immich', {type: 'directory'}],
+		['/External', {type: 'directory'}],
+		['/Network', {type: 'directory'}],
+		['/Trash', {type: 'directory'}],
+		['/Trash/old-notes.txt', {type: 'text/plain', data: Buffer.from('old')}],
+	])
+	for (const [, v] of fsTree) v.modified ??= now - Math.floor(Math.random() * 30 * 864e5)
+	const sizeOf = (v) => v.data?.length ?? v.size ?? (v.wallpaper ? 250_000 : 0)
+	const parentOf = (p) => p.slice(0, p.lastIndexOf('/')) || '/'
+	const baseName = (p) => p.slice(p.lastIndexOf('/') + 1)
+	const entry = (path) => {
+		const v = fsTree.get(path)
+		const dir = v.type === 'directory'
+		const inTrash = path.startsWith('/Trash/')
+		return {
+			name: baseName(path),
+			path,
+			type: v.type,
+			...(dir ? {} : {size: sizeOf(v)}),
+			modified: v.modified,
+			operations: inTrash ? ['restore', 'delete'] : ['copy', 'move', 'rename', 'trash', 'favorite', 'writable', ...(dir ? ['share'] : [])],
+			...(v.type.startsWith('image/') ? {thumbnail: `${baseName(path).replace(/\W/g, '')}.webp`} : {}),
+		}
+	}
+	const children = (dir) => [...fsTree.keys()].filter((k) => k !== dir && parentOf(k) === dir)
+	const needDir = (p) => {
+		if (fsTree.get(p)?.type !== 'directory') throw ['NOT_FOUND', '[does-not-exist]']
+	}
+	const uniqueIn = (dir, name) => {
+		let candidate = `${dir}/${name}`
+		const dot = name.lastIndexOf('.')
+		for (let n = 2; fsTree.has(candidate); n++) candidate = `${dir}/${dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`}`
+		return candidate
+	}
+	const moveTree = (from, to, copy) => {
+		for (const k of [...fsTree.keys()]) {
+			if (k === from || k.startsWith(`${from}/`)) {
+				fsTree.set(to + k.slice(from.length), {...fsTree.get(k), modified: Date.now()})
+				if (!copy) fsTree.delete(k)
+			}
+		}
+	}
+	const favorites = new Set(['/Home/Documents'])
+	const smbShares = [{name: 'Home', path: '/Home', available: true, sharename: 'Home'}]
+	const fsOp = (fn) => (input, auth) => {
+		try {
+			return fn(input, auth)
+		} catch (e) {
+			if (Array.isArray(e)) return {error: e}
+			throw e
+		}
+	}
 	const settings = {twoFactor: false, channel: 'stable', hostname: 'umbrel', externalDns: true, tor: false}
 	let lastCreate = null
 	const keys = [] // keysyms typed into the fake VM console
@@ -120,7 +192,7 @@ export function startFakeUmbreld({
 				return true
 			},
 		},
-		'user.get': {kind: 'query', run: () => ({userId: 'owner', name: 'Chris', role: 'owner', wallpaper})},
+		'user.get': {kind: 'query', run: () => ({userId: 'owner', name: 'Chris', role: 'owner', wallpaper, sambaUsername: 'umbrel'})},
 		'apps.recentlyOpened': {kind: 'query', run: () => ['immich', 'home-assistant']},
 		'system.uptime': {kind: 'query', run: () => 1_234_567},
 		'system.cpuTemperature': {kind: 'query', run: () => ({warning: 'normal', temperature: 52})},
@@ -233,6 +305,78 @@ export function startFakeUmbreld({
 		'wifi.supported': {kind: 'query', run: () => false},
 		'wifi.connected': {kind: 'query', run: () => ({status: 'disconnected'})},
 		'wifi.networks': {kind: 'query', run: () => []},
+		'user.getHttpApiToken': {
+			kind: 'query',
+			run: (_i, _a, _res, req) => {
+				const token = req.headers.authorization?.split(' ')[1]
+				if (!browser.get(token)) return {error: ['FORBIDDEN', 'Browser session required']}
+				const t = `url:${newToken()}`
+				urlTokens.set(t, browser.get(token))
+				return t
+			},
+		},
+		'files.list': {
+			kind: 'query',
+			run: fsOp(({path, sortBy = 'name', sortOrder = 'ascending'}) => {
+				needDir(path)
+				const files = children(path).map(entry)
+				const dirFirst = (a, b) => Number(b.type === 'directory') - Number(a.type === 'directory')
+				files.sort((a, b) => dirFirst(a, b) || (sortBy === 'name' ? a.name.localeCompare(b.name) : (a[sortBy] ?? 0) - (b[sortBy] ?? 0)))
+				if (sortOrder === 'descending') files.reverse()
+				return {...entry(path), files, hasMore: false, totalFiles: files.length}
+			}),
+		},
+		'files.search': {kind: 'query', run: ({query}) => [...fsTree.keys()].filter((k) => !k.startsWith('/Trash') && baseName(k).toLowerCase().includes(query.toLowerCase())).slice(0, 50).map(entry)},
+		'files.recents': {kind: 'query', run: () => ['/Home/Documents/Notes.txt', '/Home/Photos/Sunset.jpg'].filter((p) => fsTree.has(p)).map(entry)},
+		'files.favorites': {kind: 'query', run: () => [...favorites].filter((p) => fsTree.has(p))},
+		'files.addFavorite': {kind: 'mutation', run: ({path}) => (favorites.add(path), true)},
+		'files.removeFavorite': {kind: 'mutation', run: ({path}) => (favorites.delete(path), true)},
+		'files.createDirectory': {kind: 'mutation', run: fsOp(({path}) => {
+			needDir(parentOf(path))
+			if (fsTree.has(path)) throw ['BAD_REQUEST', '[destination-already-exists]']
+			fsTree.set(path, {type: 'directory', modified: Date.now()})
+			return path
+		})},
+		'files.rename': {kind: 'mutation', run: fsOp(({path, newName}) => {
+			if (!fsTree.has(path)) throw ['NOT_FOUND', '[does-not-exist]']
+			const to = `${parentOf(path)}/${newName}`
+			if (fsTree.has(to)) throw ['BAD_REQUEST', '[destination-already-exists]']
+			moveTree(path, to, false)
+			return to
+		})},
+		'files.copy': {kind: 'mutation', run: fsOp(({path, toDirectory}) => {
+			needDir(toDirectory)
+			const to = uniqueIn(toDirectory, baseName(path))
+			moveTree(path, to, true)
+			return to
+		})},
+		'files.move': {kind: 'mutation', run: fsOp(({path, toDirectory}) => {
+			needDir(toDirectory)
+			if (toDirectory === path || toDirectory.startsWith(`${path}/`)) throw ['BAD_REQUEST', '[subdir-of-self]']
+			const to = uniqueIn(toDirectory, baseName(path))
+			moveTree(path, to, false)
+			return to
+		})},
+		'files.trash': {kind: 'mutation', run: fsOp(({path}) => {
+			const to = uniqueIn('/Trash', baseName(path))
+			moveTree(path, to, false)
+			fsTree.get(to).from = parentOf(path)
+			return to
+		})},
+		'files.restore': {kind: 'mutation', run: fsOp(({path}) => {
+			const from = fsTree.get(path)?.from ?? '/Home'
+			const to = uniqueIn(from, baseName(path))
+			moveTree(path, to, false)
+			return to
+		})},
+		'files.delete': {kind: 'mutation', run: ({path}) => (moveTree(path, '/dev/null', false), [...fsTree.keys()].filter((k) => k.startsWith('/dev/null')).forEach((k) => fsTree.delete(k)), true)},
+		'files.emptyTrash': {kind: 'mutation', run: () => (children('/Trash').forEach((k) => [...fsTree.keys()].filter((x) => x === k || x.startsWith(`${k}/`)).forEach((x) => fsTree.delete(x))), true)},
+		'files.operationProgress': {kind: 'query', run: () => []},
+		'files.shares': {kind: 'query', run: () => smbShares},
+		'files.addShare': {kind: 'mutation', run: ({path}) => (smbShares.push({name: baseName(path), path, available: true, sharename: baseName(path)}), true)},
+		'files.removeShare': {kind: 'mutation', run: ({path}) => (smbShares.splice(smbShares.findIndex((x) => x.path === path), 1), true)},
+		'files.sharePassword': {kind: 'query', run: () => 'k3x9-share-pass'},
+		'files.externalDevices': {kind: 'query', run: () => []},
 		'system.logs': {kind: 'query', run: ({type}) => `${type} log line 1\n${type} log line 2\n`},
 	}
 
@@ -246,6 +390,7 @@ export function startFakeUmbreld({
 			send(httpStatus, {error: {message, code: -32000, data: {code, httpStatus, path: ''}}})
 		}
 		const url = new URL(req.url, 'http://x')
+		if (url.pathname.startsWith('/api/files/')) return fileApi(req, res, url)
 		const wp = url.pathname.match(/^\/assets\/wallpapers\/(\d+)\.jpg$/)
 		if (wp) {
 			try {
@@ -284,6 +429,44 @@ export function startFakeUmbreld({
 		send(200, {result: {data: out}})
 	})
 
+	// /api/files/*: like umbreld, reads need the browser cookie + URL token; uploads need Bearer + cookie.
+	const cookieOf = (req) => /UMBREL_BROWSER_SESSION=([^;]+)/.exec(req.headers.cookie ?? '')?.[1]
+	async function fileApi(req, res, url) {
+		const end = (status, body, headers = {}) => {
+			res.writeHead(status, headers)
+			res.end(body)
+		}
+		const kind = url.pathname.split('/')[3]
+		if (req.method === 'POST' && kind === 'upload') {
+			const token = req.headers.authorization?.split(' ')[1]
+			if (!browser.get(token) || browser.get(token) !== cookieOf(req)) return end(401, '{"error":"unauthorized"}')
+			const path = url.searchParams.get('path')
+			const dir = parentOf(path)
+			if (fsTree.get(dir)?.type !== 'directory') return end(404, '{"error":"not found"}')
+			const chunks = []
+			for await (const c of req) chunks.push(c)
+			const target = fsTree.has(path) ? uniqueIn(dir, baseName(path)) : path
+			const name = baseName(target).toLowerCase()
+			const type = name.endsWith('.jpg') || name.endsWith('.jpeg') ? 'image/jpeg' : name.endsWith('.png') ? 'image/png' : name.endsWith('.txt') ? 'text/plain' : 'application/octet-stream'
+			fsTree.set(target, {type, data: Buffer.concat(chunks), modified: Date.now()})
+			return end(200, JSON.stringify({path: target}), {'content-type': 'application/json'})
+		}
+		const t = url.searchParams.get('token')
+		if (req.method !== 'GET' || !urlTokens.get(t) || urlTokens.get(t) !== cookieOf(req)) return end(401, '{"error":"unauthorized"}')
+		const paths = url.searchParams.getAll('path')
+		const v = fsTree.get(paths[0])
+		if (!v) return end(404, '{"error":"not found"}')
+		let data = v.data
+		if (!data && v.wallpaper && wallpaperDir) data = await readFile(`${wallpaperDir}/${v.wallpaper}.jpg`).catch(() => null)
+		if (!data) data = Buffer.alloc(Math.min(sizeOf(v), 1024))
+		if (kind === 'download' && (paths.length > 1 || v.type === 'directory')) {
+			return end(200, Buffer.from('PK fake zip'), {'content-type': 'application/zip', 'content-disposition': `attachment; filename*=UTF-8''umbrel-files.zip`})
+		}
+		const headers = {'content-type': v.type === 'directory' ? 'application/octet-stream' : v.type, 'content-length': String(data.length)}
+		if (kind === 'download') headers['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(baseName(paths[0]))}`
+		return end(200, data, headers)
+	}
+
 	// /machines/console: single-use ticket in the query, then a raw VNC (RFB 3.8) stream,
 	// as umbreld bridges from QEMU. This minimal server draws one test frame and records keys.
 	const wss = new WebSocketServer({noServer: true})
@@ -311,6 +494,7 @@ export function startFakeUmbreld({
 				terminals,
 				settings,
 				lastCreate: () => lastCreate,
+				fsTree,
 				apps,
 				expireAllAccessTokens: () => {
 					for (const v of tokens.values()) v.expiresAt = 0

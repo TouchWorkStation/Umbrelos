@@ -554,3 +554,14 @@ export function TerminalIcon({size = 56}: {size?: number}) {
 		</span>
 	)
 }
+
+export function StoreIcon({size = 56}: {size?: number}) {
+	return (
+		<span className="app-icon store-icon" style={{width: size, height: size}}>
+			<svg width={size * 0.52} height={size * 0.52} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+				<path d="M6.3 8h11.4a1 1 0 0 1 1 1.1l-.9 9.1A2 2 0 0 1 15.8 20H8.2a2 2 0 0 1-2-1.8l-.9-9.1A1 1 0 0 1 6.3 8z" />
+				<path d="M9 11V7a3 3 0 0 1 6 0v4" />
+			</svg>
+		</span>
+	)
+}

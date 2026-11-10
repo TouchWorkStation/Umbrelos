@@ -6,6 +6,7 @@ import {AppSheet} from './AppSheet'
 import {BootstrapContext, useAction, useApps, useNotifications, useUpdates, useUser} from './data'
 import {Icon, type IconName} from './icons'
 import {Apps} from './screens/Apps'
+import {Files} from './screens/Files'
 import {Connect, Login} from './screens/Auth'
 import {Home} from './screens/Home'
 import {Machines} from './screens/Machines'
@@ -15,17 +16,17 @@ import {Store} from './screens/Store'
 import {TerminalScreen} from './Terminal'
 import {Backdrop, Sheet, SheetHeader, haptic, usePrefs, type Prefs} from './ui'
 
-type Tab = 'home' | 'apps' | 'store' | 'machines' | 'more' | 'settings'
+type Tab = 'home' | 'apps' | 'files' | 'machines' | 'more' | 'settings' | 'store'
 const TABS: {id: Tab; label: string; icon: IconName; active: IconName}[] = [
 	{id: 'home', label: 'Home', icon: 'home', active: 'home-filled'},
 	{id: 'apps', label: 'Apps', icon: 'apps', active: 'apps-filled'},
-	{id: 'store', label: 'Store', icon: 'store', active: 'store-filled'},
+	{id: 'files', label: 'Files', icon: 'folder', active: 'folder-filled'},
 	{id: 'machines', label: 'Machines', icon: 'machine', active: 'machine-filled'},
 	{id: 'more', label: 'System', icon: 'activity', active: 'activity-filled'},
 ]
 const tabFromHash = (): Tab => {
 	const h = location.hash.replace('#/', '') as Tab
-	return h === 'settings' || TABS.some((t) => t.id === h) ? h : 'home'
+	return h === 'settings' || h === 'store' || TABS.some((t) => t.id === h) ? h : 'home'
 }
 
 export function App() {
@@ -159,8 +160,9 @@ function Shell({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; prefs: Pr
 				)}
 				<main key={tab} className="screen">
 					{tab === 'home' && <Home onOpenApp={(a) => setAppId(a.id)} go={go} onTerminal={openTerminal} />}
-					{tab === 'apps' && <Apps onOpenApp={(a) => setAppId(a.id)} onTerminal={openTerminal} />}
-					{tab === 'store' && <Store onOpenInstalled={(a) => setAppId(a.id)} />}
+					{tab === 'apps' && <Apps onOpenApp={(a) => setAppId(a.id)} onTerminal={openTerminal} onStore={() => go('store')} />}
+					{tab === 'files' && <Files />}
+					{tab === 'store' && <Store onOpenInstalled={(a) => setAppId(a.id)} onBack={() => history.back()} />}
 					{tab === 'machines' && <Machines />}
 					{tab === 'more' && <More prefs={prefs} setPrefs={setPrefs} onSignedOut={onSignedOut} onSettings={() => go('settings')} />}
 					{tab === 'settings' && <Settings prefs={prefs} setPrefs={setPrefs} onSignedOut={onSignedOut} onBack={() => history.back()} />}

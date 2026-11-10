@@ -1,6 +1,6 @@
 {
   "name": "umbrel-touch",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A touch-first, phone-first interface for umbrelOS, running beside your Umbrel and talking to its real API.",
   "private": true,
   "type": "module",

@@ -94,7 +94,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.6.0', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.7.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -216,6 +216,33 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.deepEqual(fake.terminals.at(-1), {appId: 'immich', cols: 60, rows: 20})
 		assert.equal((await open('appId=../x&cols=80&rows=24')).status, 400)
 		assert.equal((await open('cols=5000&rows=24')).status, 400)
+	})
+
+	test('files: list, upload, download and preview through the server', async () => {
+		const list = await touch.req('GET', `/api/rpc/files.list?input=${encodeURIComponent(JSON.stringify({path: '/Home/Documents'}))}`)
+		assert.equal(list.status, 200)
+		assert.ok(list.body.data.files.some((f) => f.name === 'Notes.txt'))
+		const up = await fetch(`${touch.base}/api/files/upload?path=${encodeURIComponent('/Home/Documents/hello.txt')}`, {
+			method: 'POST',
+			headers: {cookie: touch.getCookie(), 'x-umbrel-touch': '1', 'content-type': 'application/octet-stream'},
+			body: 'uploaded from the phone',
+		})
+		assert.equal(up.status, 200)
+		assert.equal((await up.json()).path, '/Home/Documents/hello.txt')
+		const down = await fetch(`${touch.base}/api/files/download?path=${encodeURIComponent('/Home/Documents/hello.txt')}`, {headers: {cookie: touch.getCookie()}})
+		assert.equal(down.status, 200)
+		assert.equal(await down.text(), 'uploaded from the phone')
+		assert.match(down.headers.get('content-disposition'), /hello\.txt/)
+		const view = await fetch(`${touch.base}/api/files/view?path=${encodeURIComponent('/Home/Documents/Notes.txt')}`, {headers: {cookie: touch.getCookie()}})
+		assert.equal(view.status, 200)
+		assert.match(view.headers.get('content-security-policy'), /sandbox/)
+		// cross-site upload refused, signed-out download refused
+		const csrf = await fetch(`${touch.base}/api/files/upload?path=%2FHome%2Fx.txt`, {method: 'POST', headers: {cookie: touch.getCookie()}, body: 'x'})
+		assert.equal(csrf.status, 403)
+		assert.equal((await fetch(`${touch.base}/api/files/download?path=%2FHome%2FDocuments%2FNotes.txt`)).status, 401)
+		const mv = await touch.req('POST', '/api/rpc/files.move', {input: {path: '/Home/Documents/hello.txt', toDirectory: '/Home/Downloads'}})
+		assert.equal(mv.status, 200)
+		assert.ok(fake.fsTree.has('/Home/Downloads/hello.txt'))
 	})
 
 	test('non-allowlisted procedures are refused without reaching umbreld', async () => {
