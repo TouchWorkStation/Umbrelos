@@ -19,11 +19,12 @@ export class UmbrelError extends Error {
 export function createUmbrelClient({baseUrl, timeoutMs = 20_000, fetchImpl = fetch}) {
 	const base = baseUrl.replace(/\/+$/, '')
 
-	async function call(path, {type, input, token, userAgent, timeout = timeoutMs} = {}) {
+	async function call(path, {type, input, token, cookie, userAgent, timeout = timeoutMs, withCookies = false} = {}) {
 		let url = `${base}/trpc/${path}`
 		const headers = {accept: 'application/json'}
 		if (token) headers.authorization = `Bearer ${token}`
 		if (userAgent) headers['user-agent'] = userAgent
+		if (cookie) headers.cookie = cookie
 		const init = {method: type === 'mutation' ? 'POST' : 'GET', headers, redirect: 'follow'}
 		if (type === 'mutation') {
 			headers['content-type'] = 'application/json'
@@ -62,7 +63,10 @@ export function createUmbrelClient({baseUrl, timeoutMs = 20_000, fetchImpl = fet
 		if (!response.ok) {
 			throw new UmbrelError(`umbrelOS returned HTTP ${response.status} for ${path}`, {status: response.status, path})
 		}
-		return body?.result?.data
+		const data = body?.result?.data
+		// Cookies umbreld set on this response, as `name=value` pairs.
+		if (withCookies) return {data, cookies: (response.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0])}
+		return data
 	}
 
 	return {

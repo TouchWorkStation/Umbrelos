@@ -2,7 +2,7 @@
 services:
   umbrel-touch:
     build: .
-    image: umbrel-touch:0.2.0
+    image: umbrel-touch:0.3.0
     container_name: umbrel-touch
     restart: unless-stopped
     ports:

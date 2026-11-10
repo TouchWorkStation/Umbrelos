@@ -8,14 +8,16 @@
 // the 1-hour access token, and forwards only an explicit allowlist of calls.
 // The phone only ever holds an opaque HttpOnly cookie for this server.
 
+import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {join} from 'node:path'
 import express from 'express'
+import WebSocket, {WebSocketServer} from 'ws'
 
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {newSessionId} from './store.mjs'
 
-export const VERSION = '0.2.0'
+export const VERSION = '0.3.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -95,6 +97,8 @@ export function wallpaperOf(w) {
 	return id ? {id, brandColorHsl: brand} : null
 }
 
+const isLoopback = (hostname) => hostname === 'localhost' || hostname === '::1' || hostname === '[::1]' || /^127\./.test(hostname)
+
 export function normalizeUmbrelUrl(input) {
 	let value = String(input ?? '').trim()
 	if (!value) throw new Error('Enter your Umbrel’s address')
@@ -120,7 +124,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 	app.use((req, res, next) => {
 		res.set({
 			'Content-Security-Policy':
-				"default-src 'self'; img-src * data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+				"default-src 'self'; img-src * data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
 			'Referrer-Policy': 'no-referrer',
 			'X-Content-Type-Options': 'nosniff',
 		})
@@ -218,10 +222,15 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 			configured: !!umbrel,
 			umbrel: null,
 			accounts: [],
-			session: session ? {accountId: session.accountId, mode: session.mode} : null,
+			session: session ? {accountId: session.accountId, mode: session.mode, console: !!session.console} : null,
 		}
 		if (!umbrel) return res.json(out)
-		const host = new URL(umbrel.baseUrl).hostname
+		// When Touch runs on the Umbrel itself it talks to 127.0.0.1; the phone must
+		// use the address it reached us on instead.
+		const upstream = new URL(umbrel.baseUrl)
+		const local = isLoopback(upstream.hostname)
+		const host = local ? req.hostname : upstream.hostname
+		const publicUrl = local ? `http://${req.hostname}` : umbrel.baseUrl
 		try {
 			const [version, discovery, accounts] = await Promise.all([
 				umbrel.query('system.version'),
@@ -229,7 +238,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 				umbrel.query('user.listAccounts').catch(() => []),
 			])
 			out.umbrel = {
-				url: umbrel.baseUrl,
+				url: publicUrl,
 				host,
 				reachable: true,
 				version: version?.version,
@@ -244,7 +253,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 				wallpaper: wallpaperOf(a.wallpaper),
 			}))
 		} catch (error) {
-			out.umbrel = {url: umbrel.baseUrl, host, reachable: false, error: error.message}
+			out.umbrel = {url: publicUrl, host, reachable: false, error: error.message}
 		}
 		res.json(out)
 	})
@@ -354,6 +363,12 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 				return sendError(res, legacyError)
 			}
 		}
+		// The VM console needs a WebSocket ticket, which umbreld only issues to browser
+		// sessions (not native ones). Hold a second, browser-style session server-side
+		// for that single purpose. Failing to get one only disables the console.
+		if (session.mode === 'native') {
+			session.console = await openConsoleSession(umbrel, credentials, userAgent).catch(() => null)
+		}
 		attempts.delete(ip)
 		const sid = newSessionId()
 		await store.putSession(sid, {...session, createdAt: now, lastSeenAt: now, userAgent: String(userAgent ?? '').slice(0, 200)})
@@ -363,6 +378,11 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 
 	api.post('/auth/logout', async (req, res) => {
 		const session = store.getSession(req.sid)
+		if (session?.console) {
+			await getClient()
+				?.mutation('user.logout', undefined, {token: session.console.token, cookie: session.console.cookie})
+				.catch(() => {})
+		}
 		if (session) {
 			// Revoke the umbrelOS session too, so it disappears from Settings › Devices.
 			await authedCall(req, 'user.logout', 'mutation').catch(() => {})
@@ -371,6 +391,95 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 		setCookie(res, '', 0)
 		res.json({ok: true})
 	})
+
+	// ---- VM console ------------------------------------------------------------
+	async function openConsoleSession(umbrel, credentials, userAgent) {
+		const {data: token, cookies} = await umbrel.mutation('user.login', credentials, {userAgent, withCookies: true})
+		const cookie = cookies.filter((c) => /BROWSER_SESSION/.test(c)).join('; ')
+		if (typeof token !== 'string' || !cookie) return null
+		return {token, cookie, renewedAt: Date.now()}
+	}
+
+	async function consoleTicket(sid) {
+		const umbrel = getClient()
+		const session = store.getSession(sid)
+		if (!umbrel || !session) throw new UmbrelError('Signed out', {code: 'UNAUTHORIZED', status: 401})
+		if (!session.console) {
+			throw new UmbrelError('Sign out and back in to use the console', {code: 'CONSOLE_SESSION_REQUIRED', status: 409})
+		}
+		const auth = {token: session.console.token, cookie: session.console.cookie}
+		try {
+			// Browser sessions last 7 days from their last renewal; keep ours fresh.
+			if (Date.now() - session.console.renewedAt > 24 * 60 * 60 * 1000) {
+				await umbrel.mutation('user.renewToken', undefined, auth)
+				await store.updateSession(sid, {console: {...session.console, renewedAt: Date.now()}})
+			}
+			return await umbrel.mutation('user.createWebSocketTicket', {target: 'machines'}, auth)
+		} catch (error) {
+			if (error instanceof UmbrelError && error.code === 'UNAUTHORIZED') {
+				await store.updateSession(sid, {console: null})
+				throw new UmbrelError('Sign out and back in to use the console', {code: 'CONSOLE_SESSION_REQUIRED', status: 409})
+			}
+			throw error
+		}
+	}
+
+	// Asked before the socket opens so the app can show a clear reason when it can't.
+	api.get('/console/check', async (req, res) => {
+		try {
+			await consoleTicket(req.sid) // tickets are single-use and expire in 30s; this one is simply discarded
+			res.json({ok: true})
+		} catch (error) {
+			sendError(res, error)
+		}
+	})
+
+	// WebSocket bridge: phone <-> this server <-> umbreld /machines/console (raw VNC).
+	app.attachConsole = (server) => {
+		const wss = new WebSocketServer({noServer: true, maxPayload: 16 * 1024 * 1024})
+		server.on('upgrade', async (req, socket, head) => {
+			const refuse = (status) => {
+				socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`)
+				socket.destroy()
+			}
+			try {
+				const url = new URL(req.url, 'http://x')
+				if (url.pathname !== '/api/console') return refuse('404 Not Found')
+				// Browsers always send Origin on WebSocket handshakes: refuse other sites.
+				const origin = req.headers.origin
+				if (!origin || new URL(origin).host !== req.headers.host) return refuse('403 Forbidden')
+				const sid = parseCookies(req.headers.cookie)[COOKIE]
+				const machineId = url.searchParams.get('machineId') ?? ''
+				if (!store.getSession(sid)) return refuse('401 Unauthorized')
+				if (!/^[A-Za-z0-9_-]{1,64}$/.test(machineId)) return refuse('400 Bad Request')
+				const ticket = await consoleTicket(sid)
+				const target = new URL(getClient().baseUrl)
+				target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:'
+				target.pathname = '/machines/console'
+				target.search = new URLSearchParams({machineId, sessionId: randomUUID(), ticket}).toString()
+				const upstream = new WebSocket(target, ['binary'], {handshakeTimeout: 10_000})
+				upstream.once('error', () => refuse('502 Bad Gateway'))
+				upstream.once('open', () => {
+					upstream.removeAllListeners('error')
+					wss.handleUpgrade(req, socket, head, (client) => {
+						const closeBoth = (code, reason) => {
+							const safe = typeof code === 'number' && (code === 1000 || (code >= 3000 && code <= 4999)) ? code : 1000
+							for (const ws of [client, upstream]) if (ws.readyState === WebSocket.OPEN) ws.close(safe, reason)
+						}
+						upstream.on('message', (data) => client.readyState === WebSocket.OPEN && client.send(data, {binary: true}))
+						client.on('message', (data) => upstream.readyState === WebSocket.OPEN && upstream.send(data, {binary: true}))
+						upstream.on('close', (code, reason) => closeBoth(code, reason))
+						client.on('close', () => closeBoth(1000))
+						upstream.on('error', () => client.terminate())
+						client.on('error', () => upstream.terminate())
+					})
+				})
+			} catch {
+				refuse('502 Bad Gateway')
+			}
+		})
+		return wss
+	}
 
 	// ---- Allowlisted proxy ---------------------------------------------------
 	const proxy = async (req, res) => {

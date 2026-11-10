@@ -1,7 +1,8 @@
 import {useState} from 'react'
 
 import type {Machine} from '../api'
-import {useAction, useBootstrap, useMachines} from '../data'
+import {Console} from '../Console'
+import {useAction, useMachines} from '../data'
 import {Icon, type IconName} from '../icons'
 import {KV, Sheet, SheetHeader, StatusPill, haptic, machineStatus, useConfirm} from '../ui'
 
@@ -17,8 +18,10 @@ function osLook(osId = ''): {icon: IconName; bg: string; name: string} {
 export function Machines() {
 	const machines = useMachines()
 	const [selectedId, setSelectedId] = useState<string | null>(null)
+	const [consoleId, setConsoleId] = useState<string | null>(null)
 	const list = machines.data ?? []
 	const selected = list.find((m) => m.id === selectedId) ?? null
+	const consoleMachine = list.find((m) => m.id === consoleId) ?? null
 	const running = list.filter((m) => m.state === 'running').length
 
 	return (
@@ -90,13 +93,22 @@ export function Machines() {
 					<span>Create a virtual machine in umbrelOS and it will show up here.</span>
 				</div>
 			)}
-			{selected && <MachineSheet machine={selected} onClose={() => setSelectedId(null)} />}
+			{selected && !consoleMachine && (
+				<MachineSheet
+					machine={selected}
+					onClose={() => setSelectedId(null)}
+					onConsole={() => {
+						haptic(8)
+						setConsoleId(selected.id)
+					}}
+				/>
+			)}
+			{consoleMachine && <Console machine={consoleMachine} onClose={() => setConsoleId(null)} />}
 		</div>
 	)
 }
 
-function MachineSheet({machine: m, onClose}: {machine: Machine; onClose: () => void}) {
-	const boot = useBootstrap()
+function MachineSheet({machine: m, onClose, onConsole}: {machine: Machine; onClose: () => void; onConsole: () => void}) {
 	const action = useAction()
 	const confirm = useConfirm()
 	const status = machineStatus(m.state)
@@ -140,10 +152,10 @@ function MachineSheet({machine: m, onClose}: {machine: Machine; onClose: () => v
 			)}
 			<div className="primary-row">
 				{m.state === 'running' ? (
-					<a className="btn primary" href={boot.umbrel!.url} target="_blank" rel="noopener noreferrer">
+					<button className="btn primary" onClick={onConsole}>
 						<Icon name="machine" size={20} />
-						Console in umbrelOS
-					</a>
+						Open console
+					</button>
 				) : (
 					<button className="btn primary" onClick={() => run('machines.start', `${m.name} is starting`)} disabled={busy || m.state === 'installing'}>
 						{busy ? <span className="spinner" /> : <Icon name="play" size={20} />}

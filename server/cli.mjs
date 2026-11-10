@@ -46,6 +46,7 @@ const server = app.listen(port, host, () => {
 	for (const url of lan.length ? lan : [`http://localhost:${port}`]) console.log(`  Open      ${url}`)
 	console.log('')
 })
+app.attachConsole(server)
 server.on('error', (error) => {
 	console.error(`[umbrel-touch] ${error.message}`)
 	process.exit(1)

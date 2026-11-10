@@ -4,6 +4,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {after, before, describe, test} from 'node:test'
 
+import WebSocket from 'ws'
+
 import {createApp} from '../server/app.mjs'
 import {createStore} from '../server/store.mjs'
 import {startFakeUmbreld} from './fake-umbreld.mjs'
@@ -16,6 +18,7 @@ async function startTouch({umbrelUrl} = {}) {
 	const server = await new Promise((r) => {
 		const s = app.listen(0, '127.0.0.1', () => r(s))
 	})
+	app.attachConsole(server)
 	const base = `http://127.0.0.1:${server.address().port}`
 	let cookie = ''
 	const req = async (method, path, body, headers = {}) => {
@@ -58,7 +61,9 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.equal(r.body.version, '2.0.0')
 		r = await touch.req('GET', '/api/bootstrap')
 		assert.equal(r.body.umbrel.reachable, true)
+		// a loopback Umbrel address is reported as the address the phone used to reach Touch
 		assert.equal(r.body.umbrel.host, '127.0.0.1')
+		assert.equal(r.body.umbrel.url, 'http://127.0.0.1')
 		assert.equal(r.body.accounts[0].name, 'Chris')
 		assert.deepEqual(r.body.accounts[0].wallpaper, {id: '23', brandColorHsl: '24 90% 50%'})
 		assert.equal(r.body.session, null)
@@ -89,7 +94,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.2.0', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.3.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -105,6 +110,41 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.equal(r.status, 200)
 		assert.equal(fake.apps.find((a) => a.id === 'jellyfin').state, 'ready')
 		assert.match(fake.calls.findLast((c) => c.path === 'apps.start').authorization, /^Bearer /)
+	})
+
+	const openConsole = (headers) =>
+		new Promise((resolve) => {
+			const ws = new WebSocket(`${touch.base.replace('http', 'ws')}/api/console?machineId=ubuntu-1`, {headers})
+			ws.once('message', (data) => {
+				resolve({ok: true, first: data.toString()})
+				ws.close()
+			})
+			ws.once('unexpected-response', (_req, res) => resolve({ok: false, status: res.statusCode}))
+			ws.once('error', () => resolve({ok: false}))
+		})
+
+	test('VM console: bridges VNC through a server-held browser session', async () => {
+		const r = await touch.req('GET', '/api/console/check')
+		assert.equal(r.status, 200)
+		const ok = await openConsole({cookie: touch.getCookie(), origin: touch.base})
+		assert.deepEqual(ok, {ok: true, first: 'RFB 003.008\n'})
+		// the ticket was requested with the dashboard token + browser cookie, never the native token
+		const ticketCall = fake.calls.findLast((c) => c.path === 'user.createWebSocketTicket')
+		assert.deepEqual(ticketCall.input, {target: 'machines'})
+		const native = fake.calls.findLast((c) => c.path === 'apps.list' || c.path === 'user.get')
+		assert.notEqual(ticketCall.authorization, native?.authorization)
+	})
+
+	test('VM console: refuses other sites, missing sign-in and odd machine ids', async () => {
+		assert.equal((await openConsole({cookie: touch.getCookie(), origin: 'http://evil.example'})).status, 403)
+		assert.equal((await openConsole({cookie: touch.getCookie()})).status, 403)
+		assert.equal((await openConsole({origin: touch.base})).status, 401)
+		const bad = await new Promise((resolve) => {
+			const ws = new WebSocket(`${touch.base.replace('http', 'ws')}/api/console?machineId=../x`, {headers: {cookie: touch.getCookie(), origin: touch.base}})
+			ws.once('unexpected-response', (_q, res) => resolve(res.statusCode))
+			ws.once('error', () => resolve(0))
+		})
+		assert.equal(bad, 400)
 	})
 
 	test('non-allowlisted procedures are refused without reaching umbreld', async () => {

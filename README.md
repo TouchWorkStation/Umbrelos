@@ -19,7 +19,7 @@ A phone-first interface for umbrelOS. It runs beside your Umbrel, signs in the s
 - **Home**: live CPU, memory and storage rings, temperature and uptime, app updates, recently opened apps, and an app grid. Stopped apps are dimmed, apps with updates get a badge, and busy apps show a progress ring.
 - **Apps**: search and filters. Tap an app to open it, start, stop, restart, update, view live logs, or uninstall (with confirmation). There is also *Update all*.
 - **App Store**: featured apps with screenshots, a shelf for each category, and search. Get and Open buttons sit on every app. App pages show the version, category, size, gallery and description. Install is guided: it lists the folders and GPU access the app will get, and blocks the install until missing dependencies are installed.
-- **Machines**: your VMs with their live state. Start, shut down, restart, and force stop (with confirmation).
+- **Machines**: your VMs with their live state. Start, shut down, restart, force stop (with confirmation), and a full-screen touch **console**.
 - **System**: live CPU and memory charts, temperature, uptime, a storage breakdown, a ranked "what's using it" list for CPU, memory and storage, umbrelOS update status, and restart or shut down the Umbrel.
 - **Notifications**: a bell with a count, and a sheet where you can dismiss each one.
 - **PWA**: add it to your Home Screen to run full screen.
@@ -38,32 +38,34 @@ Phone ──(cookie)──> UmbrelOS Touch server ──(Bearer, native session)
 - No Docker socket, no SSH, no changes to umbrelOS files.
 - umbrelOS before 2.0 has no native login. For those versions it falls back to `user.login` bearer tokens.
 
-## Run it
+## Install
 
-Run it on any always-on machine on the same network as the Umbrel. That could be the FygoNAS host, a Pi, or your PC. Don't run it inside the Umbrel VM.
-
-**Docker** (simplest on a NAS):
+**On your Umbrel (recommended).** Open umbrelOS, go to **Settings > Advanced settings > Terminal**, and paste:
 
 ```bash
-docker compose up -d --build
+curl -fsSL https://raw.githubusercontent.com/TouchWorkStation/Umbrelos/main/install.sh | sudo bash
 ```
 
-**Linux, as a service:**
+It builds a small Docker image, starts one container named `umbrel-touch`, and prints the address to open on your phone (`http://<umbrel-ip>:7780`). Sign in with your umbrelOS password, then **Share > Add to Home Screen**.
+
+- Nothing in umbrelOS is modified. The container talks to umbrelOS over `127.0.0.1`, the same API the dashboard uses.
+- It restarts on boot. Docker's data lives on umbrelOS's data partition, so it is expected to survive umbrelOS updates.
+- **Update:** run the same command again. **Remove:** add `-s -- uninstall` after `bash`.
+- **Different port:** `... | sudo TOUCH_PORT=7790 bash`
+
+**On another Linux machine with Docker** (a NAS, a Pi): the same command, with your Umbrel's address:
 
 ```bash
-./install.sh 192.168.1.50      # your Umbrel's IP
+curl -fsSL https://raw.githubusercontent.com/TouchWorkStation/Umbrelos/main/install.sh | sudo UMBREL_URL=192.168.1.50 bash
 ```
 
-**Windows:** install Node.js 20+ and double-click `start-windows.cmd`. Allow it on *Private networks* when Windows asks.
+**Windows:** install Node.js 20+ and double-click `start-windows.cmd`. **By hand:** `npm ci && npm run build && node server/cli.mjs --umbrel 192.168.1.50`.
 
-**By hand:**
+## VM console
 
-```bash
-npm ci && npm run build
-node server/cli.mjs --umbrel 192.168.1.50   # --port 7780 by default
-```
+Machines > a running machine > **Open console** gives you the VM's screen full-screen on your phone: tap to click, drag to drag, long-press or two-finger tap to right-click, and drag with two fingers to scroll. The keyboard button opens the phone keyboard, and a key row adds esc, tab, ctrl, alt, arrows, super and ctrl+alt+del.
 
-Then open `http://<that-machine>:7780` on your phone, sign in with your umbrelOS password, and choose **Share › Add to Home Screen**. If you didn't pass `--umbrel`, the app asks for the address on first launch.
+umbreld only gives console tickets to browser sessions, not to the native sessions used for everything else. So at sign-in the Touch server also opens one browser-style session and keeps it server-side, used only to fetch a 30-second, single-use ticket each time a console opens. The VNC stream is then bridged phone <-> Touch server <-> umbreld. The bridge refuses connections from other sites and from signed-out phones.
 
 ## Develop
 
@@ -79,7 +81,7 @@ The procedure names and data shapes come from getumbrel/umbrel at the umbrelOS 2
 ## Not yet
 
 - Files and Photos. umbreld serves these through separate `/api/files` endpoints, which haven't been wired in yet.
-- VM console and the terminal. These need umbreld's one-time WebSocket tickets, and it hasn't been confirmed that native sessions get them. *Console in umbrelOS* opens the dashboard instead.
+- VM audio and the umbrelOS terminal.
 - Settings that change the system (users, Wi-Fi, backups). These are deliberately left out of the allowlist for now.
 
 ## License
