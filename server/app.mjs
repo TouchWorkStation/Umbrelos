@@ -18,7 +18,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.5.0'
+export const VERSION = '0.6.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -517,7 +517,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 		return {token, cookie, renewedAt: Date.now()}
 	}
 
-	async function consoleTicket(sid) {
+	async function consoleTicket(sid, target = 'machines') {
 		const umbrel = getClient()
 		const session = store.getSession(sid)
 		if (!umbrel || !session) throw new UmbrelError('Signed out', {code: 'UNAUTHORIZED', status: 401})
@@ -531,7 +531,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 				await umbrel.mutation('user.renewToken', undefined, auth)
 				await store.updateSession(sid, {console: {...session.console, renewedAt: Date.now()}})
 			}
-			return await umbrel.mutation('user.createWebSocketTicket', {target: 'machines'}, auth)
+			return await umbrel.mutation('user.createWebSocketTicket', {target}, auth)
 		} catch (error) {
 			if (error instanceof UmbrelError && error.code === 'UNAUTHORIZED') {
 				await store.updateSession(sid, {console: null})
@@ -544,14 +544,16 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 	// Asked before the socket opens so the app can show a clear reason when it can't.
 	api.get('/console/check', async (req, res) => {
 		try {
-			await consoleTicket(req.sid) // tickets are single-use and expire in 30s; this one is simply discarded
+			await consoleTicket(req.sid, req.query.target === 'terminal' ? 'terminal' : 'machines') // single-use, 30s; discarded
 			res.json({ok: true})
 		} catch (error) {
 			sendError(res, error)
 		}
 	})
 
-	// WebSocket bridge: phone <-> this server <-> umbreld /machines/console (raw VNC).
+	// WebSocket bridges: phone <-> this server <-> umbreld.
+	//   /api/console?machineId=…            -> /machines/console (raw VNC, binary)
+	//   /api/terminal?appId=…&cols=…&rows=… -> /terminal (shell text; appId = a shell inside that app)
 	app.attachConsole = (server) => {
 		const wss = new WebSocketServer({noServer: true, maxPayload: 16 * 1024 * 1024})
 		server.on('upgrade', async (req, socket, head) => {
@@ -561,20 +563,33 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 			}
 			try {
 				const url = new URL(req.url, 'http://x')
-				if (url.pathname !== '/api/console') return refuse('404 Not Found')
+				const route = {'/api/console': 'machines', '/api/terminal': 'terminal'}[url.pathname]
+				if (!route) return refuse('404 Not Found')
 				// Browsers always send Origin on WebSocket handshakes: refuse other sites.
 				const origin = req.headers.origin
 				if (!origin || new URL(origin).host !== req.headers.host) return refuse('403 Forbidden')
 				const sid = parseCookies(req.headers.cookie)[COOKIE]
-				const machineId = url.searchParams.get('machineId') ?? ''
 				if (!store.getSession(sid)) return refuse('401 Unauthorized')
-				if (!/^[A-Za-z0-9_-]{1,64}$/.test(machineId)) return refuse('400 Bad Request')
-				const ticket = await consoleTicket(sid)
 				const target = new URL(getClient().baseUrl)
 				target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:'
-				target.pathname = '/machines/console'
-				target.search = new URLSearchParams({machineId, sessionId: randomUUID(), ticket}).toString()
-				const upstream = new WebSocket(target, ['binary'], {handshakeTimeout: 10_000})
+				let params
+				if (route === 'machines') {
+					const machineId = url.searchParams.get('machineId') ?? ''
+					if (!/^[A-Za-z0-9_-]{1,64}$/.test(machineId)) return refuse('400 Bad Request')
+					target.pathname = '/machines/console'
+					params = {machineId, sessionId: randomUUID()}
+				} else {
+					const appId = url.searchParams.get('appId') ?? ''
+					const cols = Number(url.searchParams.get('cols'))
+					const rows = Number(url.searchParams.get('rows'))
+					if (appId && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(appId)) return refuse('400 Bad Request')
+					if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 10 || cols > 500 || rows < 4 || rows > 300) return refuse('400 Bad Request')
+					target.pathname = '/terminal'
+					params = {...(appId ? {appId} : {}), cols: String(cols), rows: String(rows)}
+				}
+				const ticket = await consoleTicket(sid, route)
+				target.search = new URLSearchParams({...params, ticket}).toString()
+				const upstream = new WebSocket(target, route === 'machines' ? ['binary'] : [], {handshakeTimeout: 10_000})
 				upstream.once('error', () => refuse('502 Bad Gateway'))
 				upstream.once('open', () => {
 					upstream.removeAllListeners('error')
@@ -583,8 +598,8 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 							const safe = typeof code === 'number' && (code === 1000 || (code >= 3000 && code <= 4999)) ? code : 1000
 							for (const ws of [client, upstream]) if (ws.readyState === WebSocket.OPEN) ws.close(safe, reason)
 						}
-						upstream.on('message', (data) => client.readyState === WebSocket.OPEN && client.send(data, {binary: true}))
-						client.on('message', (data) => upstream.readyState === WebSocket.OPEN && upstream.send(data, {binary: true}))
+						upstream.on('message', (data, isBinary) => client.readyState === WebSocket.OPEN && client.send(data, {binary: isBinary}))
+						client.on('message', (data, isBinary) => upstream.readyState === WebSocket.OPEN && upstream.send(data, {binary: isBinary}))
 						upstream.on('close', (code, reason) => closeBoth(code, reason))
 						client.on('close', () => closeBoth(1000))
 						upstream.on('error', () => client.terminate())

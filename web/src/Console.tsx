@@ -696,6 +696,7 @@ export function Console({machine, onClose}: {machine: Machine; onClose: () => vo
 							className={k.mod && mods[k.mod] ? 'on' : ''}
 							aria-pressed={k.mod ? mods[k.mod] : undefined}
 							disabled={!live}
+							onPointerDown={(e) => e.preventDefault()}
 							onClick={() => {
 								haptic(5)
 								if (k.mod) setMods((m) => ({...m, [k.mod!]: !m[k.mod!]}))

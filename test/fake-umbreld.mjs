@@ -25,6 +25,7 @@ export function startFakeUmbreld({
 	const settings = {twoFactor: false, channel: 'stable', hostname: 'umbrel', externalDns: true, tor: false}
 	let lastCreate = null
 	const keys = [] // keysyms typed into the fake VM console
+	const terminals = []
 	const gb = 1024 ** 3
 	const apps = [
 		{id: 'nextcloud', name: 'Nextcloud', version: '30.0.2', port: 8081, path: '', state: 'ready'},
@@ -289,6 +290,11 @@ export function startFakeUmbreld({
 	server.on('upgrade', (req, socket, head) => {
 		const url = new URL(req.url, 'http://x')
 		const ticket = url.searchParams.get('ticket')
+		if (url.pathname === '/terminal') {
+			if (!ticket?.startsWith('terminal:') || !tickets.delete(ticket)) return socket.destroy()
+			terminals.push({appId: url.searchParams.get('appId'), cols: Number(url.searchParams.get('cols')), rows: Number(url.searchParams.get('rows'))})
+			return wss.handleUpgrade(req, socket, head, (ws) => shellServer(ws, url.searchParams.get('appId'), keys))
+		}
 		if (url.pathname !== '/machines/console' || !ticket?.startsWith('machines:') || !tickets.delete(ticket) || !url.searchParams.get('machineId') || !url.searchParams.get('sessionId')) {
 			return socket.destroy()
 		}
@@ -302,6 +308,7 @@ export function startFakeUmbreld({
 				url: `http://127.0.0.1:${server.address().port}`,
 				calls,
 				keys,
+				terminals,
 				settings,
 				lastCreate: () => lastCreate,
 				apps,
@@ -315,6 +322,39 @@ export function startFakeUmbreld({
 				close: () => new Promise((r) => server.close(r)),
 			})
 		})
+	})
+}
+
+// A tiny line-based shell standing in for umbreld's PTY: echoes input, answers a few commands.
+function shellServer(ws, appId, log) {
+	const prompt = appId ? '$ ' : '\x1b[1;32mumbrel@umbrel\x1b[0m:\x1b[1;34m~\x1b[0m$ '
+	let line = ''
+	ws.send(appId ? '' : 'Welcome to umbrelOS (test shell)\r\n\r\n')
+	ws.send(prompt)
+	ws.on('message', (data) => {
+		for (const ch of data.toString()) {
+			log.push({term: ch})
+			if (ch === '\r') {
+				ws.send('\r\n')
+				const cmd = line.trim()
+				if (cmd === 'uname -a') ws.send('Linux umbrel 6.12.0-umbrel x86_64 GNU/Linux\r\n')
+				else if (cmd === 'docker ps') ws.send('CONTAINER ID   IMAGE                  NAMES\r\na1b2c3d4e5f6   ghcr.io/immich:v1.120   immich_server_1\r\n')
+				else if (cmd) ws.send(`${cmd.split(' ')[0]}: ran\r\n`)
+				line = ''
+				ws.send(prompt)
+			} else if (ch === '\x7f') {
+				if (line) {
+					line = line.slice(0, -1)
+					ws.send('\b \b')
+				}
+			} else if (ch === '\x03') {
+				line = ''
+				ws.send('^C\r\n' + prompt)
+			} else if (ch >= ' ') {
+				line += ch
+				ws.send(ch)
+			}
+		}
 	})
 }
 

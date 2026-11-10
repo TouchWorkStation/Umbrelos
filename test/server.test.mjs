@@ -94,7 +94,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.5.0', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.6.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -191,6 +191,31 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.equal((await fetch(`${touch.base}/api/background`)).status, 401)
 		const del = await touch.req('DELETE', '/api/background')
 		assert.equal(del.body.prefs.backgroundVersion, null)
+	})
+
+	test('terminal: bridges a shell (and an app shell) with a terminal ticket', async () => {
+		const open = (q) =>
+			new Promise((resolve) => {
+				const ws = new WebSocket(`${touch.base.replace('http', 'ws')}/api/terminal?${q}`, {headers: {cookie: touch.getCookie(), origin: touch.base}})
+				let out = ''
+				ws.on('message', (d) => {
+					out += d.toString()
+					if (out.includes('$ ') && !out.includes('ran')) ws.send('ls\r')
+					if (out.includes('ls: ran')) {
+						ws.close()
+						resolve({ok: true, out})
+					}
+				})
+				ws.once('unexpected-response', (_q, res) => resolve({ok: false, status: res.statusCode}))
+			})
+		const shell = await open('cols=80&rows=24')
+		assert.ok(shell.ok)
+		assert.match(shell.out, /Welcome to umbrelOS/)
+		const appShell = await open('appId=immich&cols=60&rows=20')
+		assert.ok(appShell.ok)
+		assert.deepEqual(fake.terminals.at(-1), {appId: 'immich', cols: 60, rows: 20})
+		assert.equal((await open('appId=../x&cols=80&rows=24')).status, 400)
+		assert.equal((await open('cols=5000&rows=24')).status, 400)
 	})
 
 	test('non-allowlisted procedures are refused without reaching umbreld', async () => {

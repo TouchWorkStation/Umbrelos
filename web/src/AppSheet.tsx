@@ -6,10 +6,10 @@ import {appUrl, useAction, useBootstrap} from './data'
 import {Icon, type IconName} from './icons'
 import {AppIcon, KV, Sheet, SheetHeader, StatusPill, appStatus, haptic, isAppBusy, useConfirm, useToast} from './ui'
 
-type Props = {app: UserApp | null; update?: {version: string}; onClose: () => void}
+type Props = {app: UserApp | null; update?: {version: string}; onClose: () => void; onTerminal?: (app: {id: string; name?: string; icon?: string}) => void}
 type A = {id: string; label: string; icon: IconName; onClick: () => void; disabled?: boolean}
 
-export function AppSheet({app, update, onClose}: Props) {
+export function AppSheet({app, update, onClose, onTerminal}: Props) {
 	const boot = useBootstrap()
 	const action = useAction()
 	const confirm = useConfirm()
@@ -52,9 +52,14 @@ export function AppSheet({app, update, onClose}: Props) {
 		update: {id: 'update', label: `Update to ${update?.version}`, icon: 'update', onClick: () => run('apps.update', 'updating', `${name} updated to ${update?.version}`)},
 		logs: {id: 'logs', label: 'Logs', icon: 'logs', onClick: () => setLogsOpen(true)},
 		copy: {id: 'copy', label: 'Copy link', icon: 'link', onClick: copy, disabled: !url},
+		shell: {id: 'shell', label: 'Terminal', icon: 'terminal', onClick: () => onTerminal?.({id: app.id, name, icon: app.icon}), disabled: stopped},
 	}
 	const primary = stopped ? all.start : update ? all.update : all.open
-	const tiles = stopped ? [all.logs, all.copy] : update ? [all.open, all.restart, all.stop, all.logs] : [all.restart, all.stop, all.logs, all.copy]
+	const tiles = stopped
+		? [all.logs, all.copy]
+		: update
+			? [all.open, all.restart, all.stop, all.logs]
+			: [all.restart, all.stop, all.logs, ...(onTerminal ? [all.shell] : [all.copy])]
 
 	const uninstall = async () => {
 		const ok = await confirm({
@@ -99,7 +104,7 @@ export function AppSheet({app, update, onClose}: Props) {
 				</div>
 				<div className="actions" style={{gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))`}}>
 					{tiles.map((a) => (
-						<button key={a.id} className="action" onClick={a.onClick} disabled={a.disabled || (busy && a.id !== 'logs' && a.id !== 'copy')}>
+						<button key={a.id} className="action" onClick={a.onClick} disabled={a.disabled || (busy && a.id !== 'logs' && a.id !== 'copy' && a.id !== 'shell')}>
 							<Icon name={a.icon} size={22} />
 							{a.label}
 						</button>

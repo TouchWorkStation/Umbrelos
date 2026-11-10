@@ -544,3 +544,13 @@ export function Backdrop({wallpaper, prefs}: {wallpaper?: Wallpaper | null; pref
 		</div>
 	)
 }
+
+export function TerminalIcon({size = 56}: {size?: number}) {
+	return (
+		<span className="app-icon terminal-icon" style={{width: size, height: size}}>
+			<svg width={size * 0.5} height={size * 0.5} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+				<path d="M5 7l5 5-5 5M12 18h7" />
+			</svg>
+		</span>
+	)
+}

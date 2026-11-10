@@ -3,7 +3,7 @@ import {useMemo} from 'react'
 import type {UserApp} from '../api'
 import {useApps, useCpu, useDisk, useMemory, useRecent, useTemp, useUpdates, useUptime, useUser} from '../data'
 import {Icon} from '../icons'
-import {AppIcon, Ring, appStatus, bytes, duration, greeting, haptic, isAppBusy, levelColor, pct, today} from '../ui'
+import {AppIcon, Ring, TerminalIcon, appStatus, bytes, duration, greeting, haptic, isAppBusy, levelColor, pct, today} from '../ui'
 
 export function Gauges({onClick}: {onClick?: () => void}) {
 	const cpu = useCpu()
@@ -50,7 +50,7 @@ export function Gauges({onClick}: {onClick?: () => void}) {
 	)
 }
 
-export function Home({onOpenApp, go}: {onOpenApp: (app: UserApp) => void; go: (tab: 'apps' | 'more' | 'store') => void}) {
+export function Home({onOpenApp, go, onTerminal}: {onOpenApp: (app: UserApp) => void; go: (tab: 'apps' | 'more' | 'store') => void; onTerminal?: () => void}) {
 	const user = useUser()
 	const apps = useApps()
 	const updates = useUpdates()
@@ -179,6 +179,12 @@ export function Home({onOpenApp, go}: {onOpenApp: (app: UserApp) => void; go: (t
 					</div>
 				) : (
 					<div className="app-grid">
+						{onTerminal && (
+							<button className="app-tile" onClick={() => onTerminal()} aria-label="Terminal">
+								<TerminalIcon size={60} />
+								<span className="name">Terminal</span>
+							</button>
+						)}
 						{list.map((app) => {
 							const s = appStatus(app.state, updateIds.has(app.id))
 							const busy = isAppBusy(app.state)

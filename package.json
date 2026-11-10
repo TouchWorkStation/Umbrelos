@@ -1,6 +1,6 @@
 {
   "name": "umbrel-touch",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A touch-first, phone-first interface for umbrelOS, running beside your Umbrel and talking to its real API.",
   "private": true,
   "type": "module",
@@ -31,6 +31,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@xterm/xterm": "^5.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.6.3",

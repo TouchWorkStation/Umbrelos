@@ -3,7 +3,7 @@ import {useQuery, useQueryClient} from '@tanstack/react-query'
 
 import {getBootstrap, query, type Bootstrap, type User} from './api'
 import {AppSheet} from './AppSheet'
-import {BootstrapContext, useAction, useApps, useNotifications, useUpdates} from './data'
+import {BootstrapContext, useAction, useApps, useNotifications, useUpdates, useUser} from './data'
 import {Icon, type IconName} from './icons'
 import {Apps} from './screens/Apps'
 import {Connect, Login} from './screens/Auth'
@@ -12,6 +12,7 @@ import {Machines} from './screens/Machines'
 import {More} from './screens/More'
 import {Settings} from './screens/Settings'
 import {Store} from './screens/Store'
+import {TerminalScreen} from './Terminal'
 import {Backdrop, Sheet, SheetHeader, haptic, usePrefs, type Prefs} from './ui'
 
 type Tab = 'home' | 'apps' | 'store' | 'machines' | 'more' | 'settings'
@@ -87,6 +88,14 @@ function Shell({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; prefs: Pr
 	const [tab, setTab] = useState<Tab>(tabFromHash)
 	const [appId, setAppId] = useState<string | null>(null)
 	const [bellOpen, setBellOpen] = useState(false)
+	const [terminal, setTerminal] = useState<{app?: {id: string; name?: string; icon?: string}} | null>(null)
+	const user = useUser()
+	// umbreld only gives the owner a shell.
+	const openTerminal = user.data?.role === 'member' ? undefined : (app?: {id: string; name?: string; icon?: string}) => {
+		haptic(8)
+		setAppId(null)
+		setTerminal({app})
+	}
 	const apps = useApps()
 	const updates = useUpdates()
 	const notifications = useNotifications()
@@ -149,8 +158,8 @@ function Shell({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; prefs: Pr
 					</div>
 				)}
 				<main key={tab} className="screen">
-					{tab === 'home' && <Home onOpenApp={(a) => setAppId(a.id)} go={go} />}
-					{tab === 'apps' && <Apps onOpenApp={(a) => setAppId(a.id)} />}
+					{tab === 'home' && <Home onOpenApp={(a) => setAppId(a.id)} go={go} onTerminal={openTerminal} />}
+					{tab === 'apps' && <Apps onOpenApp={(a) => setAppId(a.id)} onTerminal={openTerminal} />}
 					{tab === 'store' && <Store onOpenInstalled={(a) => setAppId(a.id)} />}
 					{tab === 'machines' && <Machines />}
 					{tab === 'more' && <More prefs={prefs} setPrefs={setPrefs} onSignedOut={onSignedOut} onSettings={() => go('settings')} />}
@@ -167,7 +176,8 @@ function Shell({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; prefs: Pr
 					</button>
 				))}
 			</nav>
-			<AppSheet app={app} update={update} onClose={() => setAppId(null)} />
+			<AppSheet app={app} update={update} onClose={() => setAppId(null)} onTerminal={openTerminal} />
+			{terminal && <TerminalScreen app={terminal.app} onClose={() => setTerminal(null)} />}
 			<NotificationsSheet open={bellOpen} notes={notes} onClose={() => setBellOpen(false)} />
 		</>
 	)

@@ -63,6 +63,10 @@ curl -fsSL https://raw.githubusercontent.com/TouchWorkStation/Umbrelos/main/inst
 
 **Windows:** install Node.js 20+ and double-click `start-windows.cmd`. **By hand:** `npm ci && npm run build && node server/cli.mjs --umbrel 192.168.1.50`.
 
+## Terminal
+
+**Terminal** is the first app on Home and in Apps. It opens a full-screen shell on your Umbrel, the same one as umbrelOS's Settings → Terminal. Every running app also has a **Terminal** button in its sheet that opens a shell inside that app's container. The bottom row has the keyboard button plus esc, tab, sticky ctrl/alt, ^C, arrows, `| ~ / -`, home and end; the button at the top right pastes. The shell's size is fixed when it starts (umbreld has no resize), so rotating the phone rescales the text instead. Owner account only, like umbrelOS.
+
 ## VM console
 
 Machines > a running machine > **Open console** shows the VM's screen full-screen. Input works like RustDesk, Microsoft Remote Desktop and RealVNC on phones. There are two modes, switched at the top right:
@@ -95,7 +99,7 @@ The procedure names and data shapes come from getumbrel/umbrel at the umbrelOS 2
 ## Not yet
 
 - Files and Photos. umbreld serves these through separate `/api/files` endpoints, which haven't been wired in yet.
-- VM audio and the umbrelOS terminal.
+- VM audio.
 - Settings that change the system (users, Wi-Fi, backups). These are deliberately left out of the allowlist for now.
 
 ## License
