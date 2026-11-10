@@ -2612,6 +2612,70 @@ h1.title {
 .term-host .xterm-viewport::-webkit-scrollbar {
 	display: none;
 }
+.term-host {
+	will-change: transform;
+	transition: transform 0.12s ease-out;
+}
+.console.kbd-open .console-dock {
+	padding-bottom: 8px;
+}
+.term-paste {
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding: calc(var(--safe-t) + 64px) 12px 12px;
+	background: rgba(0, 0, 0, 0.55);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
+	animation: fade 0.2s var(--ease);
+}
+.console.kbd-open .term-paste {
+	padding-top: 12px;
+}
+.term-paste-card {
+	width: min(100%, 480px);
+	background: #17171c;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 20px;
+	padding: 14px;
+	box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.7);
+}
+.term-paste-head b {
+	display: block;
+	font-size: 16px;
+	font-weight: 650;
+}
+.term-paste-head span {
+	display: block;
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.55);
+	margin: 2px 0 10px;
+}
+.term-paste textarea {
+	width: 100%;
+	box-sizing: border-box;
+	resize: none;
+	border-radius: 12px;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	background: #0b0b0e;
+	color: #e6e6ea;
+	font-family: var(--mono);
+	font-size: 16px;
+	padding: 10px 12px;
+	outline: none;
+}
+.term-paste textarea:focus {
+	border-color: var(--accent-text);
+}
+.term-paste-actions {
+	display: grid;
+	grid-template-columns: 1fr 1.6fr;
+	gap: 8px;
+	margin-top: 10px;
+}
 /* The Terminal "app" icon */
 .terminal-icon {
 	background: linear-gradient(150deg, #34343f, #0c0c10) !important;

@@ -23,6 +23,9 @@ export function useVisualViewport(ref: React.RefObject<HTMLElement>) {
 			el.style.top = `${vv.offsetTop}px`
 			el.style.height = `${vv.height}px`
 			el.style.bottom = 'auto'
+			// The on-screen keyboard is up: drop the home-indicator padding under the key row.
+			el.classList.toggle('kbd-open', window.innerHeight - vv.height > 120)
+			el.dispatchEvent(new Event('viewportchange'))
 		}
 		apply()
 		vv.addEventListener('resize', apply)
@@ -43,13 +46,15 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 	const host = useRef<HTMLDivElement>(null)
 	const termRef = useRef<XTerm>()
 	const wsRef = useRef<WebSocket>()
-	const size = useRef({cols: 80, rows: 24, cellW: 7.8})
+	const size = useRef({cols: 80, rows: 24, cellW: 7.8, font: BASE_FONT, ready: false})
 	const [state, setState] = useState<State>('connecting')
 	const [message, setMessage] = useState('')
 	const [attempt, setAttempt] = useState(0)
 	const [ctrl, setCtrl] = useState(false)
 	const [alt, setAlt] = useState(false)
 	const [kbd, setKbd] = useState(false)
+	const [pasteBox, setPasteBox] = useState(false)
+	const [pasteText, setPasteText] = useState('')
 	const mods = useRef({ctrl: false, alt: false})
 	mods.current = {ctrl, alt}
 	const toast = useToast()
@@ -87,7 +92,7 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 			const cellH = dims?.height || BASE_FONT * 1.15 * 1.2
 			const cols = Math.max(20, Math.min(240, Math.floor((el.clientWidth - 12) / cellW)))
 			const rows = Math.max(8, Math.min(120, Math.floor((el.clientHeight - 8) / cellH)))
-			return {cols, rows, cellW}
+			return {cols, rows, cellW, font: term.options.fontSize ?? BASE_FONT, ready: true}
 		}
 
 		const send = (data: string) => {
@@ -112,7 +117,10 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 		ta?.setAttribute('autocapitalize', 'off')
 		ta?.setAttribute('autocorrect', 'off')
 		ta?.setAttribute('spellcheck', 'false')
-		const onFocus = () => setKbd(true)
+		const onFocus = () => {
+			setKbd(true)
+			term.scrollToBottom()
+		}
 		const onBlur = () => setKbd(false)
 		ta?.addEventListener('focus', onFocus)
 		ta?.addEventListener('blur', onBlur)
@@ -127,6 +135,9 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 				setState('error')
 				return
 			}
+			term.options.fontSize = BASE_FONT
+			await new Promise((r) => requestAnimationFrame(() => r(null)))
+			if (disposed) return
 			const s = measure()
 			size.current = s
 			term.resize(s.cols, s.rows)
@@ -150,20 +161,50 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 		}
 		connect()
 
+		// The shell's row count is fixed, so when the keyboard shrinks the screen the bottom rows
+		// (where you type) would be cut off. Slide the terminal up just enough to keep the cursor
+		// line in view; slide it back down when there's room again.
+		const frame = el.parentElement!
+		let raf = 0
+		const follow = () => {
+			cancelAnimationFrame(raf)
+			raf = requestAnimationFrame(() => {
+				const screen = el.querySelector<HTMLElement>('.xterm-screen')
+				const buf = term.buffer.active
+				if (!screen || !term.rows) return
+				const rowH = screen.clientHeight / term.rows
+				const atBottom = buf.viewportY === buf.baseY
+				const cursorBottom = 6 + (buf.cursorY + 1) * rowH + 4
+				const shift = atBottom ? Math.max(0, cursorBottom - frame.clientHeight) : 0
+				el.style.transform = shift ? `translateY(${-Math.ceil(shift)}px)` : ''
+			})
+		}
+		term.onWriteParsed(follow)
+		term.onCursorMove(follow)
+		term.onScroll(follow)
+		term.onRender(follow)
+
 		// On rotate / keyboard, keep the shell's columns and scale the font to fit the width.
 		const ro = new ResizeObserver(() => {
-			const {cols, cellW} = size.current
-			const fitted = Math.max(8, Math.min(20, (BASE_FONT * (el.clientWidth - 12)) / (cols * cellW)))
+			const {cols, cellW, font, ready} = size.current
+			if (!ready) return
+			const fitted = Math.max(8, Math.min(20, (font * (el.clientWidth - 12)) / (cols * cellW)))
 			if (Math.abs(fitted - (term.options.fontSize ?? BASE_FONT)) > 0.3) term.options.fontSize = Math.round(fitted * 2) / 2
 			term.scrollToBottom()
+			follow()
 		})
 		ro.observe(el)
+		ro.observe(frame)
+		const rootEl = root.current
+		rootEl?.addEventListener('viewportchange', follow)
 
 		const prev = document.body.style.overflow
 		document.body.style.overflow = 'hidden'
 		return () => {
 			disposed = true
 			ro.disconnect()
+			cancelAnimationFrame(raf)
+			rootEl?.removeEventListener('viewportchange', follow)
 			ta?.removeEventListener('focus', onFocus)
 			ta?.removeEventListener('blur', onBlur)
 			wsRef.current?.close()
@@ -185,14 +226,33 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 		if (document.activeElement === term.textarea) term.blur()
 		else term.focus()
 	}
+	// Reading the clipboard directly only works on HTTPS (and iPhone asks first). Otherwise,
+	// open a small box the phone's own long-press → Paste works in, then send that.
 	const paste = async () => {
 		haptic(6)
-		try {
-			const text = await navigator.clipboard.readText()
-			if (text) termRef.current?.paste(text)
-		} catch {
-			toast('Allow clipboard access to paste', true)
+		if (window.isSecureContext && navigator.clipboard?.readText) {
+			try {
+				const text = await navigator.clipboard.readText()
+				if (text) {
+					termRef.current?.paste(text)
+					termRef.current?.focus()
+				}
+				return
+			} catch {
+				/* denied or unsupported: fall back to the paste box */
+			}
 		}
+		setPasteText('')
+		setPasteBox(true)
+	}
+	const sendPaste = () => {
+		if (pasteText) {
+			haptic(8)
+			termRef.current?.paste(pasteText.replace(/\r?\n$/, ''))
+			toast('Pasted')
+		}
+		setPasteBox(false)
+		window.setTimeout(() => termRef.current?.focus(), 50)
 	}
 	const live = state === 'connected'
 	const title = app ? (app.name ?? app.id) : 'Terminal'
@@ -252,6 +312,41 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 					</div>
 				)}
 			</div>
+			{pasteBox && (
+				<div className="term-paste" role="dialog" aria-label="Paste into terminal">
+					<div className="term-paste-card">
+						<div className="term-paste-head">
+							<b>Paste</b>
+							<span>Long-press in the box, tap Paste, then Send.</span>
+						</div>
+						<textarea
+							autoFocus
+							value={pasteText}
+							onChange={(e) => setPasteText(e.target.value)}
+							onPaste={(e) => {
+								const t = e.clipboardData.getData('text')
+								if (t) {
+									e.preventDefault()
+									setPasteText((v) => v + t)
+								}
+							}}
+							placeholder="Paste here"
+							autoCapitalize="off"
+							autoCorrect="off"
+							spellCheck={false}
+							rows={4}
+						/>
+						<div className="term-paste-actions">
+							<button className="btn ghost" onClick={() => (setPasteBox(false), termRef.current?.focus())}>
+								Cancel
+							</button>
+							<button className="btn primary" disabled={!pasteText} onClick={sendPaste}>
+								Send to terminal
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 			<div className="console-dock">
 				<button className={`kbd-btn${kbd ? ' on' : ''}`} aria-label={kbd ? 'Hide keyboard' : 'Show keyboard'} aria-pressed={kbd} disabled={!live} onClick={toggleKeyboard}>
 					<Icon name={kbd ? 'keyboard-hide' : 'keyboard'} size={22} />
