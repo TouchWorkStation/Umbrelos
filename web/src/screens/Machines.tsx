@@ -2,11 +2,12 @@ import {useState} from 'react'
 
 import type {Machine} from '../api'
 import {Console} from '../Console'
+import {CreateMachine} from '../CreateMachine'
 import {useAction, useMachines} from '../data'
 import {Icon, type IconName} from '../icons'
 import {KV, Sheet, SheetHeader, StatusPill, haptic, machineStatus, useConfirm} from '../ui'
 
-function osLook(osId = ''): {icon: IconName; bg: string; name: string} {
+export function osLook(osId = ''): {icon: IconName; bg: string; name: string} {
 	const id = osId.toLowerCase()
 	if (id.includes('ubuntu')) return {icon: 'ubuntu', bg: 'linear-gradient(140deg,#f2703c,#c7381d)', name: 'Ubuntu'}
 	if (id.includes('debian')) return {icon: 'debian', bg: 'linear-gradient(140deg,#d70a53,#8a0636)', name: 'Debian'}
@@ -19,6 +20,7 @@ export function Machines() {
 	const machines = useMachines()
 	const [selectedId, setSelectedId] = useState<string | null>(null)
 	const [consoleId, setConsoleId] = useState<string | null>(null)
+	const [creating, setCreating] = useState(false)
 	const list = machines.data ?? []
 	const selected = list.find((m) => m.id === selectedId) ?? null
 	const consoleMachine = list.find((m) => m.id === consoleId) ?? null
@@ -26,7 +28,17 @@ export function Machines() {
 
 	return (
 		<div className="stagger">
-			<div>
+			<div style={{position: 'relative'}}>
+				<button
+					className="btn primary small"
+					style={{position: 'absolute', right: 4, top: 14}}
+					onClick={() => {
+						haptic(6)
+						setCreating(true)
+					}}
+				>
+					<Icon name="plus" size={18} stroke={2.4} /> New
+				</button>
 				<h1 className="title">Machines</h1>
 				<p className="subtitle">{machines.isLoading ? 'Loading…' : list.length ? `${running} of ${list.length} running` : 'Virtual machines on your Umbrel'}</p>
 			</div>
@@ -90,7 +102,10 @@ export function Machines() {
 						<Icon name="machine" size={30} />
 					</span>
 					<b>No machines yet</b>
-					<span>Create a virtual machine in umbrelOS and it will show up here.</span>
+					<span>Run Ubuntu, Debian, Windows and more right on your Umbrel.</span>
+					<button className="btn primary small" onClick={() => setCreating(true)}>
+						Create a machine
+					</button>
 				</div>
 			)}
 			{selected && !consoleMachine && (
@@ -103,6 +118,7 @@ export function Machines() {
 					}}
 				/>
 			)}
+			<CreateMachine open={creating} onClose={() => setCreating(false)} />
 			{consoleMachine && <Console machine={consoleMachine} onClose={() => setConsoleId(null)} />}
 		</div>
 	)
@@ -121,6 +137,19 @@ function MachineSheet({machine: m, onClose, onConsole}: {machine: Machine; onClo
 	const shutDown = async () => {
 		if (await confirm({title: `Shut down ${m.name}?`, body: 'The machine is asked to shut down, like pressing its power button.', confirm: 'Shut down', icon: 'power'}))
 			run('machines.stop', `${m.name} is shutting down`)
+	}
+	const remove = async () => {
+		const ok = await confirm({
+			title: `Delete ${m.name}?`,
+			body: `${m.name} and its virtual disk will be permanently deleted. This can’t be undone.`,
+			confirm: `Delete ${m.name}`,
+			danger: true,
+			icon: 'trash',
+		})
+		if (ok) {
+			run('machines.uninstall', `${m.name} deleted`)
+			onClose()
+		}
 	}
 	const forceStop = async () => {
 		const ok = await confirm({
@@ -184,12 +213,18 @@ function MachineSheet({machine: m, onClose, onConsole}: {machine: Machine; onClo
 					['IP address', m.ipAddress ?? '–'],
 				]}
 			/>
-			{m.state !== 'stopped' && (
-				<button className="btn danger block" onClick={forceStop} disabled={action.isPending}>
-					<Icon name="stop" size={18} />
-					Force stop
+			<div className="stack">
+				{m.state !== 'stopped' && (
+					<button className="btn danger block" onClick={forceStop} disabled={action.isPending}>
+						<Icon name="stop" size={18} />
+						Force stop
+					</button>
+				)}
+				<button className="btn danger block" onClick={remove} disabled={action.isPending}>
+					<Icon name="trash" size={18} />
+					Delete machine
 				</button>
-			)}
+			</div>
 		</Sheet>
 	)
 }

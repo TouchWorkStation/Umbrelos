@@ -144,3 +144,29 @@ export type InstallReview = {
 	requiredFolders: {id: string; name: string; note: string | null; defaultSourcePath: string; readOnly: boolean}[]
 	gpuAccess: boolean
 }
+
+export type OsImage = {
+	id: string
+	familyId: string
+	name: string
+	variantName?: string
+	version: string
+	sizeMb: number
+	arch: 'amd64' | 'arm64'
+	platform?: 'linux' | 'windows'
+	requiresCredentials: boolean
+	custom?: boolean
+	state: 'available' | 'downloading' | 'downloaded' | 'failed'
+	downloadProgress?: number
+	evaluation?: boolean
+	manualSetup?: boolean
+	requiresLicenseKey?: boolean
+}
+export type MachineCapabilities = {hostArchitecture: 'amd64' | 'arm64'; libvirtAvailable: boolean; kvmAvailable: boolean; performanceWarning?: string}
+export type ActiveSession = {
+	id: string
+	createdAt: number
+	lastSeenAt: number
+	current: boolean
+	client: {type: 'native'; id?: string; platform?: string; deviceClass?: string; appVersion?: string} | {type: 'browser'; userAgent?: string}
+}

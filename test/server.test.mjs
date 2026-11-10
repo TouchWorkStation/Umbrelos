@@ -94,7 +94,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.3.0', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.4.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -147,9 +147,55 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.equal(bad, 400)
 	})
 
+	test('creates a machine through umbreld', async () => {
+		const r = await touch.req('POST', '/api/rpc/machines.create', {input: {name: 'Dev box', osId: 'debian-server-amd64', cores: 2, memoryGb: 2, diskSizeGb: 15, arch: 'amd64', username: 'chris', password: 'pw'}})
+		assert.equal(r.status, 200)
+		assert.equal(r.body.data.state, 'installing')
+		assert.equal(fake.lastCreate().username, 'chris')
+	})
+
+	test('settings calls go through', async () => {
+		assert.equal((await touch.req('POST', '/api/rpc/system.setHostname', {input: {hostname: 'nest'}})).status, 200)
+		assert.equal(fake.settings.hostname, 'nest')
+		assert.equal((await touch.req('POST', '/api/rpc/apps.setTorEnabled', {input: true})).status, 200)
+		assert.equal(fake.settings.tor, true)
+		const wrong = await touch.req('POST', '/api/rpc/user.changePassword', {input: {oldPassword: 'nope', newPassword: 'abcdefg'}})
+		assert.equal(wrong.status, 401)
+		const sessions = await touch.req('GET', '/api/rpc/user.listSessions')
+		assert.equal(sessions.body.data.length, 2)
+	})
+
+	test('theme settings are saved per account and validated', async () => {
+		let r = await touch.req('POST', '/api/prefs', {theme: 'tokyo', accent: 'teal'})
+		assert.equal(r.status, 200)
+		r = await touch.req('GET', '/api/prefs')
+		assert.equal(r.body.prefs.theme, 'tokyo')
+		assert.equal(r.body.prefs.accent, 'teal')
+		assert.equal((await touch.req('POST', '/api/prefs', {theme: '<script>'})).status, 400)
+		assert.equal((await touch.req('POST', '/api/prefs', {customBrandHsl: 'red; x'})).status, 400)
+		const anon = await fetch(`${touch.base}/api/prefs`)
+		assert.equal(anon.status, 401)
+	})
+
+	test('custom background upload accepts JPEG only and is private', async () => {
+		const send = (body) =>
+			fetch(`${touch.base}/api/background`, {method: 'POST', headers: {'content-type': 'image/jpeg', 'x-umbrel-touch': '1', cookie: touch.getCookie()}, body})
+		assert.equal((await send(Buffer.from('<svg onload=alert(1)>'))).status, 400)
+		const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(100)])
+		const up = await send(jpeg)
+		assert.equal(up.status, 200)
+		assert.ok((await up.json()).prefs.backgroundVersion)
+		const got = await fetch(`${touch.base}/api/background`, {headers: {cookie: touch.getCookie()}})
+		assert.equal(got.status, 200)
+		assert.equal(got.headers.get('content-type'), 'image/jpeg')
+		assert.equal((await fetch(`${touch.base}/api/background`)).status, 401)
+		const del = await touch.req('DELETE', '/api/background')
+		assert.equal(del.body.prefs.backgroundVersion, null)
+	})
+
 	test('non-allowlisted procedures are refused without reaching umbreld', async () => {
 		const before = fake.calls.length
-		const r = await touch.req('POST', '/api/rpc/system.factoryReset', {input: {password: 'x'}})
+		const r = await touch.req('POST', '/api/rpc/user.deleteUser', {input: {userId: 'x'}})
 		assert.equal(r.status, 404)
 		assert.equal(fake.calls.length, before)
 	})

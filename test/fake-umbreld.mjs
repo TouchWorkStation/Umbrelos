@@ -22,6 +22,8 @@ export function startFakeUmbreld({
 	const calls = []
 	const browser = new Map() // dashboard token -> browser-session cookie value
 	const tickets = new Set()
+	const settings = {twoFactor: false, channel: 'stable', hostname: 'umbrel', externalDns: true, tor: false}
+	let lastCreate = null
 	const keys = [] // keysyms typed into the fake VM console
 	const gb = 1024 ** 3
 	const apps = [
@@ -178,7 +180,59 @@ export function startFakeUmbreld({
 		'machines.start': {kind: 'mutation', run: ({id}) => ((machines.find((m) => m.id === id).state = 'running'), true)},
 		'notifications.get': {kind: 'query', run: () => notifications},
 		'notifications.clear': {kind: 'mutation', run: (id) => ((notifications = notifications.filter((n) => n !== id)), true)},
-		'system.factoryReset': {kind: 'mutation', run: () => true},
+		'system.factoryReset': {kind: 'mutation', run: (input) => (input?.password === password ? true : {error: ['UNAUTHORIZED', 'Invalid password']})},
+		'machines.capabilities': {kind: 'query', run: () => ({hostArchitecture: 'amd64', libvirtAvailable: true, kvmAvailable: true})},
+		'machines.osImages': {
+			kind: 'query',
+			run: () => [
+				{id: 'ubuntu-desktop-amd64', familyId: 'ubuntu', name: 'Ubuntu', variantName: 'Desktop', version: '26.04 LTS', sizeMb: 6100, arch: 'amd64', platform: 'linux', requiresCredentials: true, state: 'available'},
+				{id: 'debian-server-amd64', familyId: 'debian', name: 'Debian', variantName: 'Server', version: '13', sizeMb: 420, arch: 'amd64', platform: 'linux', requiresCredentials: true, state: 'downloaded'},
+				{id: 'alpine-amd64', familyId: 'alpine', name: 'Alpine Linux', version: '3.24', sizeMb: 70, arch: 'amd64', platform: 'linux', requiresCredentials: true, state: 'available'},
+				{id: 'windows-11-amd64', familyId: 'windows-11', name: 'Windows 11', version: '25H2', sizeMb: 7400, arch: 'amd64', platform: 'windows', requiresCredentials: true, evaluation: true, state: 'available'},
+				{id: 'ubuntu-desktop-arm64', familyId: 'ubuntu', name: 'Ubuntu', variantName: 'Desktop', version: '26.04 LTS', sizeMb: 5900, arch: 'arm64', platform: 'linux', requiresCredentials: true, state: 'available'},
+			],
+		},
+		'machines.create': {
+			kind: 'mutation',
+			run: (input) => {
+				if (!input?.name || !input.osId || !input.cores || !input.memoryGb || !input.diskSizeGb) return {error: ['BAD_REQUEST', 'Invalid input']}
+				const m = {id: `vm-${machines.length + 1}`, name: input.name, osId: input.osId.split('-')[0], cores: input.cores, memoryGb: input.memoryGb, diskSizeGb: input.diskSizeGb, state: 'installing', installProgress: 12, ipAddress: '10.21.0.9'}
+				machines.push(m)
+				lastCreate = input
+				return m
+			},
+		},
+		'machines.uninstall': {kind: 'mutation', run: ({id}) => (machines.splice(machines.findIndex((m) => m.id === id), 1), true)},
+		'user.set': {kind: 'mutation', run: (input) => (Object.assign(settings, input), input.wallpaper && (wallpaper.id = input.wallpaper), true)},
+		'user.changePassword': {kind: 'mutation', run: (input) => (input.oldPassword === password ? ((password = input.newPassword), true) : {error: ['UNAUTHORIZED', 'Incorrect password']})},
+		'user.is2faEnabled': {kind: 'query', public: true, run: () => settings.twoFactor},
+		'user.generateTotpUri': {kind: 'query', run: () => 'otpauth://totp/Umbrel:umbrel.local?secret=JBSWY3DPEHPK3PXP&issuer=Umbrel'},
+		'user.enable2fa': {kind: 'mutation', run: (input) => (input.totpToken === '123456' ? ((settings.twoFactor = true), true) : {error: ['UNAUTHORIZED', 'Incorrect 2FA code']})},
+		'user.disable2fa': {kind: 'mutation', run: (input) => (input.totpToken === '123456' ? ((settings.twoFactor = false), true) : {error: ['UNAUTHORIZED', 'Incorrect 2FA code']})},
+		'user.listSessions': {
+			kind: 'query',
+			run: () => [
+				{id: 'a'.repeat(32), createdAt: Date.now() - 6e6, lastSeenAt: Date.now(), client: {type: 'native', id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.4.0', appBuild: '1', osVersion: 'web'}, current: true},
+				{id: 'b'.repeat(32), createdAt: Date.now() - 9e7, lastSeenAt: Date.now() - 4e6, client: {type: 'browser', userAgent: 'Chrome on Windows'}, current: false},
+			],
+		},
+		'user.revokeSession': {kind: 'mutation', run: () => ({revokedCurrent: false})},
+		'user.revokeOtherSessions': {kind: 'mutation', run: () => ({revokedCount: 1})},
+		'system.updateStatus': {kind: 'query', run: () => ({running: false, progress: 0, description: '', error: false})},
+		'system.update': {kind: 'mutation', run: () => true},
+		'system.getReleaseChannel': {kind: 'query', run: () => settings.channel},
+		'system.setReleaseChannel': {kind: 'mutation', run: ({channel}) => ((settings.channel = channel), true)},
+		'system.getHostname': {kind: 'query', run: () => settings.hostname},
+		'system.setHostname': {kind: 'mutation', run: ({hostname}) => ((settings.hostname = hostname), true)},
+		'system.getIpAddresses': {kind: 'query', run: () => ['192.168.1.50']},
+		'system.isExternalDns': {kind: 'query', run: () => settings.externalDns},
+		'system.setExternalDns': {kind: 'mutation', run: (v) => ((settings.externalDns = v), true)},
+		'apps.getTorEnabled': {kind: 'query', run: () => settings.tor},
+		'apps.setTorEnabled': {kind: 'mutation', run: (v) => ((settings.tor = v), true)},
+		'wifi.supported': {kind: 'query', run: () => false},
+		'wifi.connected': {kind: 'query', run: () => ({status: 'disconnected'})},
+		'wifi.networks': {kind: 'query', run: () => []},
+		'system.logs': {kind: 'query', run: ({type}) => `${type} log line 1\n${type} log line 2\n`},
 	}
 
 	const server = http.createServer(async (req, res) => {
@@ -248,6 +302,8 @@ export function startFakeUmbreld({
 				url: `http://127.0.0.1:${server.address().port}`,
 				calls,
 				keys,
+				settings,
+				lastCreate: () => lastCreate,
 				apps,
 				expireAllAccessTokens: () => {
 					for (const v of tokens.values()) v.expiresAt = 0

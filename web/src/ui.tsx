@@ -368,24 +368,34 @@ export function Providers({children}: {children: ReactNode}) {
 }
 
 // ---- appearance ---------------------------------------------------------------
+// ids stay stable (they're saved); only the names are shown.
 export const THEMES = [
-	{id: 'umbrel', name: 'umbrelOS', bg: '#111', fg: '#fff', dots: [] as string[], wallpaper: true},
-	{id: 'mocha', name: 'Catppuccin', bg: '#1e1e2e', fg: '#cdd6f4', dots: ['#89b4fa', '#a6e3a1', '#f9e2af', '#f38ba8']},
-	{id: 'tokyo', name: 'Tokyo Night', bg: '#1a1b26', fg: '#c0caf5', dots: ['#7aa2f7', '#9ece6a', '#e0af68', '#f7768e']},
-	{id: 'gruvbox', name: 'Gruvbox', bg: '#282828', fg: '#ebdbb2', dots: ['#83a598', '#b8bb26', '#fabd2f', '#fb4934']},
-	{id: 'latte', name: 'Latte', bg: '#eff1f5', fg: '#4c4f69', dots: ['#1e66f5', '#40a02b', '#df8e1d', '#d20f39']},
+	{id: 'umbrel', name: 'Horizon', bg: '#111', fg: '#fff', dots: [] as string[]},
+	{id: 'custom', name: 'Your photo', bg: '#111', fg: '#fff', dots: [] as string[]},
+	{id: 'mocha', name: 'Midnight', bg: '#1e1e2e', fg: '#cdd6f4', dots: ['#89b4fa', '#a6e3a1', '#f9e2af', '#f38ba8']},
+	{id: 'tokyo', name: 'Neon', bg: '#1a1b26', fg: '#c0caf5', dots: ['#7aa2f7', '#9ece6a', '#e0af68', '#f7768e']},
+	{id: 'gruvbox', name: 'Ember', bg: '#282828', fg: '#ebdbb2', dots: ['#83a598', '#b8bb26', '#fabd2f', '#fb4934']},
+	{id: 'latte', name: 'Daylight', bg: '#eff1f5', fg: '#4c4f69', dots: ['#1e66f5', '#40a02b', '#df8e1d', '#d20f39']},
 ] as const
 export const ACCENTS = ['wallpaper', 'blue', 'mauve', 'teal', 'peach', 'green', 'pink'] as const
 export type ThemeId = (typeof THEMES)[number]['id']
-export type Prefs = {theme: ThemeId; accent: (typeof ACCENTS)[number]}
+export type Prefs = {
+	theme: ThemeId
+	accent: (typeof ACCENTS)[number]
+	customBrandHsl?: string | null
+	backgroundVersion?: number | null
+}
 const DEFAULT_PREFS: Prefs = {theme: 'umbrel', accent: 'wallpaper'}
+const LOCAL_KEY = 'umbrel-touch:prefs'
 
+function clean(p: Partial<Prefs> | null | undefined): Prefs {
+	const theme = THEMES.some((t) => t.id === p?.theme) ? p!.theme! : DEFAULT_PREFS.theme
+	const accent = (ACCENTS as readonly string[]).includes(p?.accent as string) ? p!.accent! : DEFAULT_PREFS.accent
+	return {theme, accent, customBrandHsl: p?.customBrandHsl ?? null, backgroundVersion: p?.backgroundVersion ?? null}
+}
 export function readPrefs(): Prefs {
 	try {
-		const p = JSON.parse(localStorage.getItem('umbrel-touch:prefs') ?? '{}')
-		const theme = THEMES.some((t) => t.id === p.theme) ? p.theme : DEFAULT_PREFS.theme
-		const accent = (ACCENTS as readonly string[]).includes(p.accent) ? p.accent : DEFAULT_PREFS.accent
-		return {theme, accent}
+		return clean(JSON.parse(localStorage.getItem(LOCAL_KEY) ?? '{}'))
 	} catch {
 		return DEFAULT_PREFS
 	}
@@ -397,7 +407,8 @@ export function applyPrefs(p: Prefs, brandHsl?: string | null) {
 	root.dataset.theme = p.theme
 	const light = p.theme === 'latte'
 	if (p.accent === 'wallpaper') {
-		const [h, s, l] = (brandHsl ?? FALLBACK_BRAND).split(' ').map((v) => parseFloat(v))
+		const source = p.theme === 'custom' ? (p.customBrandHsl ?? brandHsl) : brandHsl
+		const [h, s, l] = (source ?? FALLBACK_BRAND).split(' ').map((v) => parseFloat(v))
 		root.style.setProperty('--accent', `hsl(${h} ${s}% ${l}%)`)
 		root.style.setProperty('--accent-text', `hsl(${h} ${Math.min(s, 95)}% ${light ? Math.min(l, 42) : Math.max(l, 66)}%)`)
 		root.style.setProperty('--on-accent', '#fff')
@@ -410,24 +421,109 @@ export function applyPrefs(p: Prefs, brandHsl?: string | null) {
 	meta?.setAttribute('content', THEMES.find((t) => t.id === p.theme)?.bg ?? '#111')
 }
 
-export function usePrefs(brandHsl?: string | null) {
-	const [prefs, setPrefs] = useState<Prefs>(readPrefs)
+// Appearance is cached on the phone for an instant first paint, and saved on the
+// Touch server per umbrelOS account so every phone you sign in on gets it.
+export function usePrefs(brandHsl: string | null | undefined, signedIn: boolean) {
+	const [prefs, setLocal] = useState<Prefs>(readPrefs)
+	const loaded = useRef(false)
 	useLayoutEffect(() => {
 		applyPrefs(prefs, brandHsl)
 		try {
-			localStorage.setItem('umbrel-touch:prefs', JSON.stringify(prefs))
+			localStorage.setItem(LOCAL_KEY, JSON.stringify(prefs))
 		} catch {
 			/* private mode: keep in memory */
 		}
 	}, [prefs, brandHsl])
-	return [prefs, setPrefs] as const
+	useEffect(() => {
+		if (!signedIn) {
+			loaded.current = false
+			return
+		}
+		fetch('/api/prefs', {credentials: 'same-origin'})
+			.then((r) => (r.ok ? r.json() : null))
+			.then((body) => {
+				loaded.current = true
+				if (body?.prefs) setLocal(clean(body.prefs))
+				// First sign-in on the server: keep what this phone already had.
+				else savePrefs(readPrefs())
+			})
+			.catch(() => {})
+	}, [signedIn])
+	const setPrefs = useCallback(
+		(next: Prefs) => {
+			setLocal(next)
+			if (signedIn) savePrefs(next)
+		},
+		[signedIn],
+	)
+	return [prefs, setPrefs, setLocal] as const
+}
+function savePrefs(p: Prefs) {
+	return fetch('/api/prefs', {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: {'content-type': 'application/json', 'x-umbrel-touch': '1'},
+		body: JSON.stringify({theme: p.theme, accent: p.accent, customBrandHsl: p.customBrandHsl ?? null}),
+	}).catch(() => {})
+}
+
+// Resize a photo on the phone (keeps upload small, fixes rotation) and find its dominant colour.
+export async function preparePhoto(file: File): Promise<{blob: Blob; hsl: string}> {
+	const bitmap = await createImageBitmap(file, {imageOrientation: 'from-image'} as ImageBitmapOptions).catch(() => {
+		throw new Error('That photo couldn’t be opened. Try a JPEG or PNG.')
+	})
+	const scale = Math.min(1, 2400 / Math.max(bitmap.width, bitmap.height))
+	const w = Math.round(bitmap.width * scale)
+	const h = Math.round(bitmap.height * scale)
+	const canvas = document.createElement('canvas')
+	canvas.width = w
+	canvas.height = h
+	const ctx = canvas.getContext('2d')!
+	ctx.drawImage(bitmap, 0, 0, w, h)
+	bitmap.close?.()
+	// Average of a small copy, pushed to a usable saturation/lightness for an accent.
+	const tiny = document.createElement('canvas')
+	tiny.width = tiny.height = 24
+	const t = tiny.getContext('2d')!
+	t.drawImage(canvas, 0, 0, 24, 24)
+	const px = t.getImageData(0, 0, 24, 24).data
+	let r = 0, g = 0, b = 0, n = 0
+	for (let i = 0; i < px.length; i += 4) {
+		const max = Math.max(px[i], px[i + 1], px[i + 2])
+		const min = Math.min(px[i], px[i + 1], px[i + 2])
+		const weight = 1 + (max - min) / 32 // favour colourful pixels over grey ones
+		r += px[i] * weight
+		g += px[i + 1] * weight
+		b += px[i + 2] * weight
+		n += weight
+	}
+	const [hue, sat] = rgbToHsl(r / n, g / n, b / n)
+	const hsl = `${Math.round(hue)} ${Math.round(Math.max(55, sat))}% 52%`
+	const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((bl) => (bl ? resolve(bl) : reject(new Error('Couldn’t process the photo'))), 'image/jpeg', 0.86))
+	return {blob, hsl}
+}
+function rgbToHsl(r: number, g: number, b: number) {
+	r /= 255
+	g /= 255
+	b /= 255
+	const max = Math.max(r, g, b)
+	const min = Math.min(r, g, b)
+	const l = (max + min) / 2
+	if (max === min) return [0, 0, l * 100]
+	const d = max - min
+	const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+	const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+	return [h * 60, s * 100, l * 100]
 }
 
 // ---- backdrop -----------------------------------------------------------------
 export const wallpaperUrl = (w?: Wallpaper | null) => (w?.id ? `/api/umbrel-wallpaper/${w.id}` : null)
 
-export function Backdrop({wallpaper, theme}: {wallpaper?: Wallpaper | null; theme: ThemeId}) {
-	const url = theme === 'umbrel' ? wallpaperUrl(wallpaper) : null
+export const customBackgroundUrl = (version?: number | null) => (version ? `/api/background?v=${version}` : null)
+
+export function Backdrop({wallpaper, prefs}: {wallpaper?: Wallpaper | null; prefs: Prefs}) {
+	const url =
+		prefs.theme === 'umbrel' ? wallpaperUrl(wallpaper) : prefs.theme === 'custom' ? (customBackgroundUrl(prefs.backgroundVersion) ?? wallpaperUrl(wallpaper)) : null
 	const [ready, setReady] = useState<string | null>(null)
 	useEffect(() => {
 		if (!url) return

@@ -1,10 +1,10 @@
-import {useEffect, useMemo, useState, type CSSProperties} from 'react'
+import {useEffect, useMemo, useRef, useState, type CSSProperties} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 
 import {logout, mutate, query, type UsageItem, type Wallpaper} from '../api'
 import {useApps, useBootstrap, useCpu, useDisk, useMemory, useTemp, useUptime, useUser} from '../data'
 import {Icon} from '../icons'
-import {ACCENTS, AppIcon, KV, Segmented, THEMES, bytes, duration, haptic, useConfirm, useToast, wallpaperUrl, type Prefs} from '../ui'
+import {ACCENTS, AppIcon, KV, Segmented, THEMES, bytes, customBackgroundUrl, duration, haptic, preparePhoto, useConfirm, useToast, wallpaperUrl, type Prefs} from '../ui'
 
 // One point per successful poll (keyed on fetch time, so flat values still plot).
 function useHistory(value: number | undefined, stamp: number, size = 40) {
@@ -187,37 +187,78 @@ function Live() {
 	)
 }
 
-function Appearance({prefs, setPrefs, wallpaper}: {prefs: Prefs; setPrefs: (p: Prefs) => void; wallpaper?: Wallpaper | null}) {
+export function Appearance({prefs, setPrefs, wallpaper}: {prefs: Prefs; setPrefs: (p: Prefs) => void; wallpaper?: Wallpaper | null}) {
+	const toast = useToast()
+	const fileRef = useRef<HTMLInputElement>(null)
+	const [uploading, setUploading] = useState(false)
 	const wp = wallpaperUrl(wallpaper)
+	const photo = customBackgroundUrl(prefs.backgroundVersion)
 	const brand = wallpaper?.brandColorHsl ? `hsl(${wallpaper.brandColorHsl})` : 'hsl(24 90% 50%)'
+	const photoBrand = prefs.customBrandHsl ? `hsl(${prefs.customBrandHsl})` : brand
+	const accentPreview = prefs.theme === 'custom' ? photoBrand : brand
+
+	const upload = async (file?: File | null) => {
+		if (!file) return
+		setUploading(true)
+		try {
+			const {blob, hsl} = await preparePhoto(file)
+			const res = await fetch('/api/background', {method: 'POST', credentials: 'same-origin', headers: {'content-type': 'image/jpeg', 'x-umbrel-touch': '1'}, body: blob})
+			const body = await res.json().catch(() => null)
+			if (!res.ok) throw new Error(body?.error?.message ?? 'Upload failed')
+			setPrefs({...prefs, theme: 'custom', customBrandHsl: hsl, backgroundVersion: body.prefs.backgroundVersion})
+			toast('Background saved')
+		} catch (e) {
+			toast((e as Error).message, true)
+		} finally {
+			setUploading(false)
+			if (fileRef.current) fileRef.current.value = ''
+		}
+	}
+	const removePhoto = async () => {
+		const res = await fetch('/api/background', {method: 'DELETE', credentials: 'same-origin', headers: {'x-umbrel-touch': '1'}}).catch(() => null)
+		if (!res?.ok) return toast('Couldn’t remove the photo', true)
+		setPrefs({...prefs, theme: prefs.theme === 'custom' ? 'umbrel' : prefs.theme, customBrandHsl: null, backgroundVersion: null})
+		toast('Photo removed')
+	}
+
 	return (
 		<section className="glass card">
+			<input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => upload(e.target.files?.[0])} />
 			<div className="themes" role="radiogroup" aria-label="Theme">
 				{THEMES.map((t) => {
 					const on = prefs.theme === t.id
 					const isWall = t.id === 'umbrel'
+					const isPhoto = t.id === 'custom'
+					const bg = isWall && wp ? `linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.45)), url(${wp}) center/cover` : isPhoto && photo ? `linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.45)), url(${photo}) center/cover` : isPhoto ? 'linear-gradient(140deg, #2a2a33, #15151a)' : t.bg
 					return (
 						<button
 							key={t.id}
 							role="radio"
 							aria-checked={on}
 							className={`theme-card${on ? ' on' : ''}`}
-							style={{
-								background: isWall && wp ? `linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.45)), url(${wp}) center/cover` : t.bg,
-								color: t.fg,
-								gridColumn: isWall ? 'span 2' : undefined,
-								minHeight: isWall ? 96 : undefined,
-							}}
+							style={{background: bg, color: t.fg, minHeight: isWall || isPhoto ? 104 : undefined}}
 							onClick={() => {
 								haptic(6)
+								if (isPhoto && !photo) return fileRef.current?.click()
 								setPrefs({...prefs, theme: t.id})
 							}}
 						>
-							<span className="label">{isWall ? 'umbrelOS wallpaper' : t.name}</span>
+							<span className="label">{t.name}</span>
 							<span className="dots">
-								{(isWall ? [brand, '#ffffff'] : t.dots).map((d) => (
-									<i key={d} style={{background: d}} />
-								))}
+								{isWall ? (
+									[brand, '#ffffff'].map((d) => <i key={d} style={{background: d}} />)
+								) : isPhoto ? (
+									photo ? (
+										[photoBrand, '#ffffff'].map((d) => <i key={d} style={{background: d}} />)
+									) : (
+										<span style={{display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, opacity: 0.85}}>
+											{uploading ? <span className="spinner" style={{width: 14, height: 14}} /> : <Icon name="photo-up" size={16} />}
+											{uploading ? 'Uploading…' : 'Upload'}
+										</span>
+									)
+								) : (
+									t.dots.map((d) => <i key={d} style={{background: d}} />)
+								)}
 							</span>
 							{on && (
 								<span className="tick">
@@ -228,15 +269,27 @@ function Appearance({prefs, setPrefs, wallpaper}: {prefs: Prefs; setPrefs: (p: P
 					)
 				})}
 			</div>
+			{photo && (
+				<div className="photo-actions">
+					<button className="btn" onClick={() => fileRef.current?.click()} disabled={uploading}>
+						{uploading ? <span className="spinner" /> : <Icon name="photo-up" size={18} />}
+						{uploading ? 'Uploading…' : 'Change photo'}
+					</button>
+					<button className="btn danger" onClick={removePhoto} disabled={uploading}>
+						<Icon name="trash" size={18} />
+						Remove
+					</button>
+				</div>
+			)}
 			<div className="accents" role="radiogroup" aria-label="Accent color">
 				{ACCENTS.map((a) => (
 					<button
 						key={a}
 						role="radio"
 						aria-checked={prefs.accent === a}
-						aria-label={a === 'wallpaper' ? 'Match wallpaper' : a}
+						aria-label={a === 'wallpaper' ? 'Match background' : a}
 						className={`accent-btn${prefs.accent === a ? ' on' : ''}`}
-						style={{background: a === 'wallpaper' ? brand : `var(--${a})`}}
+						style={{background: a === 'wallpaper' ? accentPreview : `var(--${a})`}}
 						onClick={() => {
 							haptic(6)
 							setPrefs({...prefs, accent: a})
@@ -246,11 +299,14 @@ function Appearance({prefs, setPrefs, wallpaper}: {prefs: Prefs; setPrefs: (p: P
 					</button>
 				))}
 			</div>
+			<p className="footer-note" style={{textAlign: 'left', margin: '14px 2px 0'}}>
+				Saved to your account, so it follows you to every phone you sign in on.
+			</p>
 		</section>
 	)
 }
 
-export function More({prefs, setPrefs, onSignedOut}: {prefs: Prefs; setPrefs: (p: Prefs) => void; onSignedOut: () => void}) {
+export function More({prefs, setPrefs, onSignedOut, onSettings}: {prefs: Prefs; setPrefs: (p: Prefs) => void; onSignedOut: () => void; onSettings: () => void}) {
 	const boot = useBootstrap()
 	const user = useUser()
 	const confirm = useConfirm()
@@ -345,6 +401,7 @@ export function More({prefs, setPrefs, onSignedOut}: {prefs: Prefs; setPrefs: (p
 					]}
 				/>
 				<div className="glass group" style={{'--inset': '62px'} as CSSProperties}>
+					<Row icon="settings" color="#8e8e93" label="Settings" onClick={onSettings} />
 					<Row icon="open" color="var(--blue)" label="Open umbrelOS" href={boot.umbrel?.url} />
 					<Row icon="restart" color="var(--peach)" label="Restart Umbrel" onClick={() => power('restart')} />
 					<Row icon="power" color="var(--red)" label="Shut down Umbrel" onClick={() => power('shutdown')} />

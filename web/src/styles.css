@@ -5,7 +5,8 @@
 
 /* ---- Themes -------------------------------------------------------------- */
 :root,
-[data-theme='umbrel'] {
+[data-theme='umbrel'],
+[data-theme='custom'] {
 	--bg: #0c0c10;
 	--bg-solid: #16161b;
 	--fg: #ffffff;
@@ -517,7 +518,7 @@ h1.title {
 .ring .track {
 	stroke: var(--faint, rgba(255, 255, 255, 0.1));
 }
-[data-theme]:not([data-theme='umbrel']) .ring .track {
+[data-theme]:not([data-theme='umbrel']):not([data-theme='custom']) .ring .track {
 	stroke: var(--line-2);
 }
 .ring .value {
@@ -2251,4 +2252,129 @@ h1.title {
 		animation-delay: 0ms !important;
 		transition-duration: 0.01ms !important;
 	}
+}
+
+/* ---- Steppers, switches, settings ------------------------------------------ */
+.stepper {
+	min-height: 60px;
+	gap: 10px;
+}
+.stepper .k {
+	flex: 1;
+	font-size: 15px;
+	font-weight: 550;
+}
+.step-btn {
+	width: 40px;
+	height: 40px;
+	border-radius: 12px;
+	border: 0;
+	background: var(--glass-2);
+	color: var(--fg);
+	font-size: 22px;
+	line-height: 1;
+	display: grid;
+	place-items: center;
+}
+.step-btn:active:not(:disabled) {
+	background: var(--glass-press);
+}
+.step-val {
+	min-width: 70px;
+	text-align: center;
+	font-size: 16px;
+	font-weight: 650;
+}
+.step-val small {
+	font-size: 12px;
+	color: var(--muted);
+	font-weight: 550;
+}
+.switch {
+	position: relative;
+	width: 51px;
+	height: 31px;
+	flex: none;
+	border-radius: 999px;
+	border: 0;
+	padding: 0;
+	background: var(--glass-2);
+	box-shadow: inset 0 0 0 1px var(--line);
+	transition: background-color 0.25s;
+}
+.switch::after {
+	content: '';
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 27px;
+	height: 27px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+	transition: transform 0.3s var(--spring);
+}
+.switch[aria-checked='true'] {
+	background: var(--green);
+}
+.switch[aria-checked='true']::after {
+	transform: translateX(20px);
+}
+.settings-profile {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	padding: 16px;
+	margin-bottom: 4px;
+}
+.settings-profile .avatar {
+	width: 58px;
+	height: 58px;
+	font-size: 22px;
+}
+.settings-profile b {
+	display: block;
+	font-size: 19px;
+	font-weight: 700;
+}
+.settings-profile span {
+	font-size: 13.5px;
+	color: var(--muted);
+}
+.row .trail {
+	font-size: 14.5px;
+	color: var(--muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 45%;
+}
+.wall-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 10px;
+}
+.wall-grid button {
+	position: relative;
+	aspect-ratio: 16 / 10;
+	border-radius: 14px;
+	border: 2px solid transparent;
+	padding: 0;
+	background: var(--glass-2) center / cover;
+}
+.wall-grid button[aria-checked='true'] {
+	border-color: var(--accent-text);
+}
+.photo-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 12px;
+}
+.photo-actions .btn {
+	flex: 1;
+	min-height: 44px;
+	font-size: 14.5px;
+}
+.topbar .round-btn + .round-btn {
+	margin-left: -2px;
 }

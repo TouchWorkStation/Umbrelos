@@ -10,10 +10,11 @@ import {Connect, Login} from './screens/Auth'
 import {Home} from './screens/Home'
 import {Machines} from './screens/Machines'
 import {More} from './screens/More'
+import {Settings} from './screens/Settings'
 import {Store} from './screens/Store'
 import {Backdrop, Sheet, SheetHeader, haptic, usePrefs, type Prefs} from './ui'
 
-type Tab = 'home' | 'apps' | 'store' | 'machines' | 'more'
+type Tab = 'home' | 'apps' | 'store' | 'machines' | 'more' | 'settings'
 const TABS: {id: Tab; label: string; icon: IconName; active: IconName}[] = [
 	{id: 'home', label: 'Home', icon: 'home', active: 'home-filled'},
 	{id: 'apps', label: 'Apps', icon: 'apps', active: 'apps-filled'},
@@ -23,7 +24,7 @@ const TABS: {id: Tab; label: string; icon: IconName; active: IconName}[] = [
 ]
 const tabFromHash = (): Tab => {
 	const h = location.hash.replace('#/', '') as Tab
-	return TABS.some((t) => t.id === h) ? h : 'home'
+	return h === 'settings' || TABS.some((t) => t.id === h) ? h : 'home'
 }
 
 export function App() {
@@ -34,7 +35,7 @@ export function App() {
 	const [loginId, setLoginId] = useState<string>()
 	const account = boot.data?.accounts.find((a) => a.userId === (signedIn ? boot.data?.session?.accountId : loginId)) ?? boot.data?.accounts[0]
 	const wallpaper = (signedIn ? user.data?.wallpaper : null) ?? account?.wallpaper ?? null
-	const [prefs, setPrefs] = usePrefs(wallpaper?.brandColorHsl)
+	const [prefs, setPrefs] = usePrefs(wallpaper?.brandColorHsl, signedIn)
 	const refresh = useCallback(() => qc.invalidateQueries({queryKey: ['bootstrap']}), [qc])
 
 	useEffect(() => {
@@ -76,7 +77,7 @@ export function App() {
 
 	return (
 		<>
-			<Backdrop wallpaper={wallpaper} theme={prefs.theme} />
+			<Backdrop wallpaper={wallpaper} prefs={prefs} />
 			{content}
 		</>
 	)
@@ -124,6 +125,13 @@ function Shell({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; prefs: Pr
 					<span className="spacer-x" />
 					<button
 						className="round-btn"
+						aria-label="Settings"
+						onClick={() => go('settings')}
+					>
+						<Icon name="settings" size={20} />
+					</button>
+					<button
+						className="round-btn"
 						aria-label={notes.length ? `${notes.length} notifications` : 'Notifications'}
 						onClick={() => {
 							haptic(6)
@@ -145,11 +153,12 @@ function Shell({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; prefs: Pr
 					{tab === 'apps' && <Apps onOpenApp={(a) => setAppId(a.id)} />}
 					{tab === 'store' && <Store onOpenInstalled={(a) => setAppId(a.id)} />}
 					{tab === 'machines' && <Machines />}
-					{tab === 'more' && <More prefs={prefs} setPrefs={setPrefs} onSignedOut={onSignedOut} />}
+					{tab === 'more' && <More prefs={prefs} setPrefs={setPrefs} onSignedOut={onSignedOut} onSettings={() => go('settings')} />}
+					{tab === 'settings' && <Settings prefs={prefs} setPrefs={setPrefs} onSignedOut={onSignedOut} onBack={() => history.back()} />}
 				</main>
 			</div>
 			<nav className="dock" aria-label="Main">
-				<span className="indicator" style={{transform: `translateX(${index * 100}%)`}} aria-hidden="true" />
+				<span className="indicator" style={{transform: `translateX(${Math.max(index, 0) * 100}%)`, opacity: index < 0 ? 0 : 1}} aria-hidden="true" />
 				{TABS.map((t) => (
 					<button key={t.id} aria-current={tab === t.id ? 'page' : undefined} onClick={() => go(t.id)}>
 						<Icon name={tab === t.id ? t.active : t.icon} size={23} stroke={tab === t.id ? 2 : 1.75} />

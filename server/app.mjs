@@ -10,14 +10,15 @@
 
 import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
+import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import express from 'express'
 import WebSocket, {WebSocketServer} from 'ws'
 
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
-import {newSessionId} from './store.mjs'
+import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.3.0'
+export const VERSION = '0.4.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -60,10 +61,45 @@ export const ALLOWED = {
 	'notifications.clear': 'mutation',
 	'system.restart': 'mutation',
 	'system.shutdown': 'mutation',
+	// Create a machine
+	'machines.capabilities': 'query',
+	'machines.osImages': 'query',
+	'machines.create': 'mutation',
+	'machines.uninstall': 'mutation',
+	// Settings: account
+	'user.set': 'mutation',
+	'user.changePassword': 'mutation',
+	'user.is2faEnabled': 'query',
+	'user.generateTotpUri': 'query',
+	'user.enable2fa': 'mutation',
+	'user.disable2fa': 'mutation',
+	'user.listSessions': 'query',
+	'user.revokeSession': 'mutation',
+	'user.revokeOtherSessions': 'mutation',
+	// Settings: software update
+	'system.updateStatus': 'query',
+	'system.update': 'mutation',
+	'system.getReleaseChannel': 'query',
+	'system.setReleaseChannel': 'mutation',
+	// Settings: network & privacy
+	'system.getHostname': 'query',
+	'system.setHostname': 'mutation',
+	'system.isExternalDns': 'query',
+	'system.setExternalDns': 'mutation',
+	'apps.getTorEnabled': 'query',
+	'apps.setTorEnabled': 'mutation',
+	'wifi.supported': 'query',
+	'wifi.networks': 'query',
+	'wifi.connected': 'query',
+	'wifi.connect': 'mutation',
+	'wifi.disconnect': 'mutation',
+	// Settings: advanced (umbreld itself re-checks the password for factory reset)
+	'system.logs': 'query',
+	'system.factoryReset': 'mutation',
 }
 
 // Long-running mutations: umbreld answers when the operation finishes.
-const SLOW = new Set(['apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs'])
+const SLOW = new Set(['apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname'])
 
 function parseCookies(header = '') {
 	const out = {}
@@ -289,8 +325,9 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 		const umbrel = getClient()
 		const id = req.params.id
 		if (!umbrel || !/^\d{1,3}$/.test(id)) return res.status(404).end()
+		const tier = req.query.size === 'thumb' ? 'thumbnails' : 'medium'
 		for (const [path, type] of [
-			[`/assets/wallpapers/generated-avif/medium/${id}.avif`, 'image/avif'],
+			[`/assets/wallpapers/generated-avif/${tier}/${id}.avif`, 'image/avif'],
 			[`/assets/wallpapers/${id}.jpg`, 'image/jpeg'],
 		]) {
 			try {
@@ -390,6 +427,86 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 		}
 		setCookie(res, '', 0)
 		res.json({ok: true})
+	})
+
+	// ---- Saved appearance (per umbrelOS account, shared by all its phones) -------
+	const THEME_IDS = ['umbrel', 'mocha', 'tokyo', 'gruvbox', 'latte', 'custom']
+	const ACCENT_IDS = ['wallpaper', 'blue', 'mauve', 'teal', 'peach', 'green', 'pink']
+	const HSL = /^\d{1,3}(\.\d+)? \d{1,3}(\.\d+)?% \d{1,3}(\.\d+)?%$/
+	const accountKey = (accountId) => hashId(`account:${accountId}`).slice(0, 32)
+	const backgroundFile = (accountId) => join(store.dataDir, 'backgrounds', `${accountKey(accountId)}.jpg`)
+	const prefsOf = (accountId) => store.getConfig().prefs?.[accountKey(accountId)] ?? null
+	const savePrefs = async (accountId, patch) => {
+		const all = {...(store.getConfig().prefs ?? {})}
+		all[accountKey(accountId)] = {...(all[accountKey(accountId)] ?? {}), ...patch}
+		await store.setConfig({prefs: all})
+		return all[accountKey(accountId)]
+	}
+	const requireSession = (req, res) => {
+		const session = store.getSession(req.sid)
+		if (!session) res.status(401).json({error: {code: 'UNAUTHORIZED', message: 'Signed out'}})
+		return session
+	}
+
+	api.get('/prefs', (req, res) => {
+		const session = requireSession(req, res)
+		if (session) res.json({prefs: prefsOf(session.accountId)})
+	})
+	api.post('/prefs', async (req, res) => {
+		const session = requireSession(req, res)
+		if (!session) return
+		const {theme, accent, customBrandHsl} = req.body ?? {}
+		const patch = {}
+		if (theme !== undefined) {
+			if (!THEME_IDS.includes(theme)) return res.status(400).json({error: {code: 'BAD_REQUEST', message: 'Unknown theme'}})
+			patch.theme = theme
+		}
+		if (accent !== undefined) {
+			if (!ACCENT_IDS.includes(accent)) return res.status(400).json({error: {code: 'BAD_REQUEST', message: 'Unknown accent'}})
+			patch.accent = accent
+		}
+		if (customBrandHsl !== undefined) {
+			if (customBrandHsl !== null && !HSL.test(String(customBrandHsl))) {
+				return res.status(400).json({error: {code: 'BAD_REQUEST', message: 'Bad colour'}})
+			}
+			patch.customBrandHsl = customBrandHsl
+		}
+		res.json({prefs: await savePrefs(session.accountId, patch)})
+	})
+
+	// Custom background: the phone resizes the photo to a JPEG before sending it.
+	api.post('/background', express.raw({type: 'image/jpeg', limit: '8mb'}), async (req, res) => {
+		const session = requireSession(req, res)
+		if (!session) return
+		const body = req.body
+		const isJpeg = Buffer.isBuffer(body) && body.length > 4 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff
+		if (!isJpeg) return res.status(400).json({error: {code: 'BAD_REQUEST', message: 'That image couldn’t be read. Try a JPEG or PNG.'}})
+		await mkdir(join(store.dataDir, 'backgrounds'), {recursive: true, mode: 0o700})
+		await writeFile(backgroundFile(session.accountId), body, {mode: 0o600})
+		const prefs = await savePrefs(session.accountId, {backgroundVersion: Date.now()})
+		res.json({prefs})
+	})
+	api.get('/background', async (req, res) => {
+		const session = requireSession(req, res)
+		if (!session) return
+		try {
+			const data = await readFile(backgroundFile(session.accountId))
+			res.set({'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=31536000, immutable'}).send(data)
+		} catch {
+			res.status(404).end()
+		}
+	})
+	api.delete('/background', async (req, res) => {
+		const session = requireSession(req, res)
+		if (!session) return
+		await rm(backgroundFile(session.accountId), {force: true})
+		const current = prefsOf(session.accountId) ?? {}
+		const prefs = await savePrefs(session.accountId, {
+			backgroundVersion: null,
+			customBrandHsl: null,
+			...(current.theme === 'custom' ? {theme: 'umbrel'} : {}),
+		})
+		res.json({prefs})
 	})
 
 	// ---- VM console ------------------------------------------------------------

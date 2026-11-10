@@ -2,9 +2,9 @@
 
 A phone-first interface for umbrelOS. It runs beside your Umbrel, signs in the same way Umbrel's own iPhone and Mac apps do, and controls your real apps, machines and system. It never modifies the Umbrel.
 
-| Home | App actions | App Store | System |
-| --- | --- | --- | --- |
-| ![Home](docs/home.png) | ![App actions](docs/app-sheet.png) | ![App Store](docs/store.png) | ![System](docs/system.png) |
+| Home | App actions | App Store | System | Settings | New machine |
+| --- | --- | --- | --- | --- | --- |
+| ![Home](docs/home.png) | ![App actions](docs/app-sheet.png) | ![App Store](docs/store.png) | ![System](docs/system.png) | ![Settings](docs/settings.png) | ![New machine](docs/new-machine.png) |
 
 ## Look and feel
 
@@ -12,14 +12,16 @@ A phone-first interface for umbrelOS. It runs beside your Umbrel, signs in the s
 - **Frosted glass** cards, sheets and a floating dock with a sliding indicator.
 - **Tabler icons**, the same open-source icon family umbrelOS uses. **Inter** is bundled locally, so nothing loads from a CDN.
 - **Touch-first details:** bottom sheets you can swipe down to close, spring animations, a light vibration on Android, and tap targets of at least 44 px. It respects Reduce Motion.
-- **Other themes:** Catppuccin, Tokyo Night, Gruvbox and Latte (light), plus seven accent colors.
+- **Themes:** Horizon (your umbrelOS wallpaper), **Your photo** (upload any picture; the accent colour is picked from it), Midnight, Neon, Ember and Daylight, plus seven accent colours.
+- **Saved appearance:** theme, accent and photo are saved on the Touch server per umbrelOS account, so every phone you sign in on looks the same.
 
 ## What works
 
 - **Home**: live CPU, memory and storage rings, temperature and uptime, app updates, recently opened apps, and an app grid. Stopped apps are dimmed, apps with updates get a badge, and busy apps show a progress ring.
 - **Apps**: search and filters. Tap an app to open it, start, stop, restart, update, view live logs, or uninstall (with confirmation). There is also *Update all*.
 - **App Store**: featured apps with screenshots, a shelf for each category, and search. Get and Open buttons sit on every app. App pages show the version, category, size, gallery and description. Install is guided: it lists the folders and GPU access the app will get, and blocks the install until missing dependencies are installed.
-- **Machines**: your VMs with their live state. Start, shut down, restart, force stop (with confirmation), and a full-screen touch **console**.
+- **Machines**: your VMs with their live state. **Create** a machine from umbrelOS's OS catalog (Ubuntu, Debian, Fedora, Alpine, Windows…) with per-OS starting specs for cores, memory and disk. Start, shut down, restart, force stop, delete (with confirmation), and a full-screen touch **console**.
+- **Settings** (gear button): name, password, two-factor authentication, umbrelOS wallpaper, signed-in devices (sign out one or all others), software update with live progress and stable/beta channel, device name, IP address, Wi-Fi, Tor, public DNS, system logs, restart, shut down and factory reset (password + typing RESET). Users, backups, storage, static IP and app-store sources link to the umbrelOS dashboard.
 - **System**: live CPU and memory charts, temperature, uptime, a storage breakdown, a ranked "what's using it" list for CPU, memory and storage, umbrelOS update status, and restart or shut down the Umbrel.
 - **Notifications**: a bell with a count, and a sheet where you can dismiss each one.
 - **PWA**: add it to your Home Screen to run full screen.
@@ -33,7 +35,7 @@ Phone ──(cookie)──> UmbrelOS Touch server ──(Bearer, native session)
 - umbreld's browser login ties its token to an HttpOnly cookie on umbreld's own address and sends no CORS headers, so a separate web page can't call it directly. umbreld also has a **native login** (`user.loginNative`, added in umbrelOS 2.0) that issues a 1-hour access token plus a device token for renewing it. UmbrelOS Touch uses that.
 - Those credentials stay on the Touch server, in a 0600 file. Your phone only gets an opaque `HttpOnly; SameSite=Strict` cookie.
 - Each phone that signs in becomes its own session in umbrelOS. If you revoke it there, that phone is signed out.
-- Only an **allowlist** of 35 umbreld procedures can be reached (see `ALLOWED` in `server/app.mjs`). Factory reset, password changes, network settings and app-store repositories are refused before they reach the Umbrel.
+- Only an **allowlist** of umbreld procedures can be reached (see `ALLOWED` in `server/app.mjs`). User management, static IP, backups, storage and app-store repositories are refused before they reach the Umbrel; password changes and factory reset are allowed but umbreld itself re-checks your password.
 - Every action that changes something has to come from the app's own page (custom header plus Origin check). Sign-in is rate-limited.
 - No Docker socket, no SSH, no changes to umbrelOS files.
 - umbrelOS before 2.0 has no native login. For those versions it falls back to `user.login` bearer tokens.
