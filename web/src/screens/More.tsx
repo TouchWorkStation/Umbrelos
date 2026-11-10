@@ -383,12 +383,6 @@ export function More({prefs, setPrefs, onSignedOut, onSettings}: {prefs: Prefs; 
 			</div>
 			<section>
 				<div className="section-head">
-					<h2>Appearance</h2>
-				</div>
-				<Appearance prefs={prefs} setPrefs={setPrefs} wallpaper={user.data?.wallpaper} />
-			</section>
-			<section>
-				<div className="section-head">
 					<h2>Your Umbrel</h2>
 				</div>
 				<KV

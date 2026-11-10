@@ -182,3 +182,53 @@ export type FileEntry = {
 }
 export type Listing = FileEntry & {files: FileEntry[]; hasMore?: boolean; totalFiles?: number; truncatedAt?: number}
 export type SmbShare = {name: string; path: string; available: boolean; sharename: string}
+
+// ---- storage (hardware.internalStorage / hardware.raid) -------------------------------
+export type StorageDevice = {
+	type: 'ssd' | 'hdd'
+	transport: 'nvme' | 'sata' | 'sas'
+	device: string
+	id?: string
+	slot?: number
+	name: string
+	model: string
+	serial: string
+	size: number
+	roundedSize?: number
+	temperature?: number
+	temperatureWarning?: number
+	temperatureCritical?: number
+	lifetimeUsed?: number
+	smartStatus: 'healthy' | 'unhealthy' | 'unknown'
+	isSystemDrive?: boolean
+}
+export type PoolState = 'ONLINE' | 'DEGRADED' | 'FAULTED' | 'OFFLINE' | 'UNAVAIL' | 'REMOVED' | 'CANT_OPEN'
+export type PoolMember = {id: string; status: PoolState; readErrors: number; writeErrors: number; checksumErrors: number}
+type Progress<S extends string> = {state: S; progress: number}
+export type RaidStatus = {
+	name?: string
+	exists: boolean
+	raidType?: 'storage' | 'failsafe'
+	topology?: 'stripe' | 'raidz' | 'mirror'
+	status?: PoolState
+	totalSpace?: number
+	usableSpace?: number
+	usedSpace?: number
+	freeSpace?: number
+	devices?: PoolMember[]
+	mirrors?: string[][]
+	dataErrors?: number
+	accelerator?: {exists: boolean; l2arcSize?: number; specialSize?: number; devices?: PoolMember[]}
+	expansion?: Progress<'expanding' | 'finished' | 'canceled'>
+	rebuild?: Progress<'rebuilding' | 'finished' | 'canceled'>
+	scrub?: Progress<'scrubbing' | 'finished' | 'canceled'> & {errors: number}
+	replace?: Progress<'rebuilding' | 'expanding' | 'finished' | 'canceled'>
+	failsafeTransitionStatus?: Progress<'syncing' | 'rebooting' | 'rebuilding' | 'complete' | 'error'> & {error?: string}
+}
+export type UsbDrive = {
+	id: string
+	name: string
+	transport: string
+	size: number
+	partitions: {id: string; label?: string; size: number; mountpoints: string[]}[]
+}

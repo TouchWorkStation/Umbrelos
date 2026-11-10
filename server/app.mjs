@@ -18,7 +18,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.7.3'
+export const VERSION = '0.8.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -118,10 +118,21 @@ export const ALLOWED = {
 	'files.sharePassword': 'query',
 	'files.externalDevices': 'query',
 	'files.unmountExternalDevice': 'mutation',
+	// Storage: the same calls umbrelOS's Storage Manager makes. hardware.raid.setup is
+	// deliberately absent: umbreld marks it dev-only, and on a running Umbrel it writes a RAID
+	// config the next boot mounts as the data drive, i.e. an empty pool in place of your data.
+	'hardware.internalStorage.getDevices': 'query',
+	'hardware.raid.getStatus': 'query',
+	'hardware.raid.addDevice': 'mutation',
+	'hardware.raid.addMirror': 'mutation',
+	'hardware.raid.addAccelerator': 'mutation',
+	'hardware.raid.replaceDevice': 'mutation',
+	'hardware.raid.transitionToFailsafeRaidz': 'mutation',
+	'hardware.raid.scrub': 'mutation',
 }
 
 // Long-running mutations: umbreld answers when the operation finishes.
-const SLOW = new Set(['files.copy', 'files.move', 'files.delete', 'files.emptyTrash', 'files.search', 'files.list', 'apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname'])
+const SLOW = new Set(['files.copy', 'files.move', 'files.delete', 'files.emptyTrash', 'files.search', 'files.list', 'apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname', 'hardware.internalStorage.getDevices', 'hardware.raid.addDevice', 'hardware.raid.addMirror', 'hardware.raid.addAccelerator', 'hardware.raid.replaceDevice', 'hardware.raid.transitionToFailsafeRaidz'])
 
 function parseCookies(header = '') {
 	const out = {}

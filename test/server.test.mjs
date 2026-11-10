@@ -94,7 +94,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.7.3', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.8.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -249,6 +249,19 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		const before = fake.calls.length
 		const r = await touch.req('POST', '/api/rpc/user.deleteUser', {input: {userId: 'x'}})
 		assert.equal(r.status, 404)
+		assert.equal(fake.calls.length, before)
+	})
+
+	test('storage: drives and pool status pass through; RAID setup is never reachable', async () => {
+		const devices = await touch.req('GET', '/api/rpc/hardware.internalStorage.getDevices')
+		assert.equal(devices.status, 200)
+		assert.ok(devices.body.data.some((d) => d.isSystemDrive))
+		const raid = await touch.req('GET', '/api/rpc/hardware.raid.getStatus')
+		assert.equal(raid.status, 200)
+		assert.equal(raid.body.data.exists, false)
+		const before = fake.calls.length
+		const setup = await touch.req('POST', '/api/rpc/hardware.raid.setup', {input: {devices: ['a'], raidType: 'storage'}})
+		assert.equal(setup.status, 404)
 		assert.equal(fake.calls.length, before)
 	})
 

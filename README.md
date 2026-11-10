@@ -13,7 +13,7 @@ A phone-first interface for umbrelOS. It runs beside your Umbrel, signs in the s
 - **Tabler icons**, the same open-source icon family umbrelOS uses. **Inter** is bundled locally, so nothing loads from a CDN.
 - **Touch-first details:** bottom sheets you can swipe down to close, spring animations, a light vibration on Android, and tap targets of at least 44 px. It respects Reduce Motion.
 - **Themes:** Horizon (your umbrelOS wallpaper), **Your photo** (upload any picture; the accent colour is picked from it), Midnight, Neon, Ember and Daylight, plus seven accent colours.
-- **Saved appearance:** theme, accent and photo are saved on the Touch server per umbrelOS account, so every phone you sign in on looks the same.
+- **Settings → Appearance:** theme, accent and photo are saved on the Touch server per umbrelOS account, so every phone you sign in on looks the same.
 
 ## What works
 
@@ -22,7 +22,7 @@ A phone-first interface for umbrelOS. It runs beside your Umbrel, signs in the s
 - **Files** (in the dock): your Umbrel as a NAS. See [Files](#files).
 - **App Store** (a tile next to Terminal on Home and in Apps): featured apps with screenshots, a shelf for each category, and search. Get and Open buttons sit on every app. App pages show the version, category, size, gallery and description. Install is guided: it lists the folders and GPU access the app will get, and blocks the install until missing dependencies are installed.
 - **Machines**: your VMs with their live state. **Create** a machine from umbrelOS's OS catalog (Ubuntu, Debian, Fedora, Alpine, Windows…) with per-OS starting specs for cores, memory and disk. Start, shut down, restart, force stop, delete (with confirmation), and a full-screen touch **console**.
-- **Settings** (gear button): name, password, two-factor authentication, umbrelOS wallpaper, signed-in devices (sign out one or all others), software update with live progress and stable/beta channel, device name, IP address, Wi-Fi, Tor, public DNS, system logs, restart, shut down and factory reset (password + typing RESET). Users, backups, storage, static IP and app-store sources link to the umbrelOS dashboard.
+- **Settings** (gear button): name, password, two-factor authentication, umbrelOS wallpaper, signed-in devices (sign out one or all others), software update with live progress and stable/beta channel, device name, IP address, Wi-Fi, Tor, public DNS, system logs, restart, shut down and factory reset (password + typing RESET). **Appearance** and **Storage** have their own pages (see [Storage](#storage)). Users, backups, static IP and app-store sources link to the umbrelOS dashboard.
 - **System**: live CPU and memory charts, temperature, uptime, a storage breakdown, a ranked "what's using it" list for CPU, memory and storage, umbrelOS update status, and restart or shut down the Umbrel.
 - **Notifications**: a bell with a count, and a sheet where you can dismiss each one.
 - **PWA**: add it to your Home Screen to run full screen.
@@ -79,6 +79,22 @@ Files is in the dock and works through umbreld's own file API, so it sees what u
 - **Trash**: restore, delete forever, or empty Trash (each asks first).
 
 Downloads, previews and uploads stream through the Touch server using your existing umbrelOS session; the phone never holds an Umbrel token. Previews are served with a locked-down sandbox CSP so an uploaded HTML or SVG file can't run scripts.
+
+## Storage
+
+Settings → Storage shows every drive umbrelOS can see, through the same calls as umbrelOS's own Storage Manager.
+
+![Storage](docs/storage.png)
+
+- **Scan drives**: asks umbrelOS to list drives again (it reads them live) and reports how many it found, how many are new, and how many aren't in use. The page also refreshes every 15 seconds.
+- **Drive health**: SMART status, temperature, SSD wear, model, serial and device path for each drive. Pool members also show their status and read, write and checksum errors.
+- **RAID, when you have a storage pool**: add a drive, add a mirrored pair (HDD FailSafe), add SSD acceleration to hard drives, turn a single SSD into FailSafe, replace a failed drive, and run an error check, with live progress. Each step offers only what umbrelOS allows for your pool, names the drive that will be erased, and asks first.
+- **Without a pool** (a single-drive Umbrel): extra drives are listed with their health, but they can't be combined. umbrelOS only creates pools during setup, so the page explains the path: back up, reinstall on a separate boot drive with the drives connected, choose them during setup, then restore.
+- **USB drives**: listed with where they're mounted, plus Eject.
+
+Touch never calls `hardware.raid.setup`. umbreld marks it as a development-only call, and on a running Umbrel it writes a RAID config that the next boot mounts as the data drive, which means an empty pool in place of your apps and data. The server's allowlist refuses it.
+
+**In a VM:** umbrelOS only lists disks that report a SATA or NVMe connection (umbrelOS 2.1 adds SAS). VirtIO disks don't show up, so attach extra disks as SATA in your hypervisor.
 
 ## Terminal
 

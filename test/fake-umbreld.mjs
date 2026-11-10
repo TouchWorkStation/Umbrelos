@@ -376,9 +376,76 @@ export function startFakeUmbreld({
 		'files.addShare': {kind: 'mutation', run: ({path}) => (smbShares.push({name: baseName(path), path, available: true, sharename: baseName(path)}), true)},
 		'files.removeShare': {kind: 'mutation', run: ({path}) => (smbShares.splice(smbShares.findIndex((x) => x.path === path), 1), true)},
 		'files.sharePassword': {kind: 'query', run: () => 'k3x9-share-pass'},
-		'files.externalDevices': {kind: 'query', run: () => []},
+		'files.externalDevices': {
+			kind: 'query',
+			run: () => usbDrives,
+		},
+		'files.unmountExternalDevice': {kind: 'mutation', run: ({deviceId}) => (usbDrives.splice(usbDrives.findIndex((d) => d.id === deviceId), 1), true)},
+		'hardware.internalStorage.getDevices': {kind: 'query', run: () => storageDevices},
+		'hardware.raid.getStatus': {kind: 'query', run: () => raid},
+		'hardware.raid.addDevice': {
+			kind: 'mutation',
+			run: ({deviceId}) => {
+				if (!raid.exists) throw new Error("RAID array doesn't exist")
+				raid.devices.push({id: deviceId, status: 'ONLINE', readErrors: 0, writeErrors: 0, checksumErrors: 0})
+				raid.usableSpace += 1e12
+				raid.totalSpace += 1e12
+				return true
+			},
+		},
+		'hardware.raid.transitionToFailsafeRaidz': {kind: 'mutation', run: () => (raid.failsafeTransitionStatus = {state: 'syncing', progress: 12}, true)},
+		'hardware.raid.replaceDevice': {
+			kind: 'mutation',
+			run: ({oldDevice, newDevice}) => {
+				const m = raid.devices.find((d) => d.id === oldDevice)
+				if (!m) throw new Error(`Device ${oldDevice} is not in the RAID array or accelerator`)
+				Object.assign(m, {id: newDevice, status: 'ONLINE'})
+				raid.status = 'ONLINE'
+				raid.replace = {state: 'rebuilding', progress: 3}
+				return true
+			},
+		},
+		'hardware.raid.scrub': {kind: 'mutation', run: () => (raid.scrub = {state: 'scrubbing', progress: 1, errors: 0}, true)},
+		'hardware.raid.addMirror': {kind: 'mutation', run: () => true},
+		'hardware.raid.addAccelerator': {kind: 'mutation', run: () => true},
 		'system.logs': {kind: 'query', run: ({type}) => `${type} log line 1\n${type} log line 2\n`},
 	}
+
+	// Storage hardware. Default: a single-drive Umbrel (no pool) with two spare disks attached.
+	// FAKE_RAID=1: an SSD FailSafe (raidz) pool with one failed member and a spare SSD.
+	const ssd = (id, name, size, extra = {}) => ({type: 'ssd', transport: 'sata', device: id.slice(-3), id, name, model: name, serial: `S${id.length}${id.slice(-4).toUpperCase()}`, size, roundedSize: size, temperature: 36, smartStatus: 'healthy', ...extra})
+	const hdd = (id, name, size, extra = {}) => ({type: 'hdd', transport: 'sata', device: id.slice(-3), id, name, model: name, serial: `W${id.slice(-4).toUpperCase()}`, size, roundedSize: size, temperature: 33, smartStatus: 'healthy', ...extra})
+	const storageDevices = process.env.FAKE_RAID
+		? [
+				ssd('sata-boot-sda', 'QEMU HARDDISK', 64e9, {isSystemDrive: true}),
+				ssd('sata-samsung-870-sdb', 'Samsung SSD 870 EVO', 2e12, {isSystemDrive: false, lifetimeUsed: 4}),
+				ssd('sata-samsung-870-sdc', 'Samsung SSD 870 EVO', 2e12, {isSystemDrive: false, smartStatus: 'unhealthy', temperature: 58}),
+				ssd('sata-crucial-mx500-sdd', 'Crucial MX500', 2e12, {isSystemDrive: false}),
+			]
+		: [
+				ssd('sata-boot-sda', 'QEMU HARDDISK', 256e9, {isSystemDrive: true}),
+				hdd('sata-wd-red-sdb', 'WDC WD40EFRX', 4e12, {isSystemDrive: false}),
+				hdd('sata-wd-red-sdc', 'WDC WD40EFRX', 4e12, {isSystemDrive: false}),
+			]
+	const raid = process.env.FAKE_RAID
+		? {
+				name: 'umbrelos-1a2b3c4d',
+				exists: true,
+				raidType: 'failsafe',
+				topology: 'raidz',
+				status: 'DEGRADED',
+				totalSpace: 4e12,
+				usableSpace: 2e12,
+				usedSpace: 0.62e12,
+				freeSpace: 1.38e12,
+				devices: [
+					{id: 'sata-samsung-870-sdb', status: 'ONLINE', readErrors: 0, writeErrors: 0, checksumErrors: 0},
+					{id: 'sata-samsung-870-sdc', status: 'FAULTED', readErrors: 14, writeErrors: 3, checksumErrors: 0},
+				],
+				scrub: {state: 'finished', progress: 100, errors: 0},
+			}
+		: {name: undefined, exists: false}
+	const usbDrives = [{id: 'sde', name: 'SanDisk Extreme', transport: 'usb', size: 1e12, partitions: [{id: 'sde1', label: 'BACKUP', size: 1e12, mountpoints: ['/External/BACKUP'], supportsAppDataRoot: false}]}]
 
 	const server = http.createServer(async (req, res) => {
 		const send = (status, body) => {

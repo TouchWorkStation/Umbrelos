@@ -7,6 +7,7 @@ import {useBootstrap, useUser} from '../data'
 import {Icon, type IconName} from '../icons'
 import {Segmented, Sheet, SheetHeader, haptic, initials, useConfirm, useToast, wallpaperUrl, type Prefs} from '../ui'
 import {Appearance} from './More'
+import {StoragePage} from './Storage'
 
 const WALLPAPER_IDS = Array.from({length: 25}, (_, i) => String(i + 1))
 
@@ -154,6 +155,14 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 	const save = useSave()
 	const qc = useQueryClient()
 	const [sheet, setSheet] = useState<SheetId>(null)
+	const [page, setPage] = useState<'main' | 'appearance' | 'storage'>(() => (sessionStorage.getItem('umbrel-touch:settings-page') as 'appearance' | 'storage') || 'main')
+	const openPage = (p: 'main' | 'appearance' | 'storage') => {
+		haptic(5)
+		if (p === 'main') sessionStorage.removeItem('umbrel-touch:settings-page')
+		else sessionStorage.setItem('umbrel-touch:settings-page', p)
+		setPage(p)
+		window.scrollTo({top: 0})
+	}
 	const close = () => setSheet(null)
 	const owner = user.data?.role !== 'member'
 
@@ -216,6 +225,20 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 
 	const settingsUrl = `${boot.umbrel?.url ?? ''}/settings`
 
+	if (page === 'storage') return <StoragePage onBack={() => openPage('main')} />
+	if (page === 'appearance')
+		return (
+			<div className="stagger">
+				<div className="page-head" style={{margin: '6px 0 14px'}}>
+					<button className="round-btn" aria-label="Back" onClick={() => openPage('main')}>
+						<Icon name="back" size={20} />
+					</button>
+					<h1 className="title">Appearance</h1>
+				</div>
+				<Appearance prefs={prefs} setPrefs={setPrefs} wallpaper={user.data?.wallpaper} />
+			</div>
+		)
+
 	return (
 		<div className="stagger">
 			<div style={{display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0 0'}}>
@@ -246,12 +269,13 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 				</div>
 			</div>
 
-			<section>
-				<div className="section-head">
-					<h2>Appearance</h2>
+			<div>
+				<div className="section-head" style={{marginTop: 18}} />
+				<div className="glass group" style={{'--inset': '62px'} as CSSProperties}>
+					<Row icon="palette" color="var(--pink, #ec4899)" label="Appearance" onClick={() => openPage('appearance')} />
+					{owner && <Row icon="disk" color="var(--teal)" label="Storage" onClick={() => openPage('storage')} />}
 				</div>
-				<Appearance prefs={prefs} setPrefs={setPrefs} wallpaper={user.data?.wallpaper} />
-			</section>
+			</div>
 
 			<Group title="Signed-in devices" footer="Every browser and app signed in to your Umbrel with your account.">
 				{(sessions.data ?? []).map((s) => {
