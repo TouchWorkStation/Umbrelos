@@ -1,12 +1,12 @@
-import {useEffect, useMemo, useRef, useState} from 'react'
+import {useEffect, useMemo, useState, type CSSProperties} from 'react'
 import {useQuery, useQueryClient} from '@tanstack/react-query'
 
-import {logout, mutate, query, type UsageItem} from '../api'
-import {useAction, useApps, useBootstrap, useCpu, useDisk, useMemory, useNotifications, useUser} from '../data'
+import {logout, mutate, query, type UsageItem, type Wallpaper} from '../api'
+import {useApps, useBootstrap, useCpu, useDisk, useMemory, useTemp, useUptime, useUser} from '../data'
 import {Icon} from '../icons'
-import {ACCENTS, THEMES, bytes, useConfirm, useToast, type Prefs} from '../ui'
+import {ACCENTS, AppIcon, KV, Segmented, THEMES, bytes, duration, haptic, useConfirm, useToast, wallpaperUrl, type Prefs} from '../ui'
 
-// One point per successful poll (keyed on the fetch time, so flat values still plot).
+// One point per successful poll (keyed on fetch time, so flat values still plot).
 function useHistory(value: number | undefined, stamp: number, size = 40) {
 	const [series, setSeries] = useState<number[]>([])
 	useEffect(() => {
@@ -17,56 +17,98 @@ function useHistory(value: number | undefined, stamp: number, size = 40) {
 	return series
 }
 
-function Spark({series, max = 100, color = 'var(--accent)', label}: {series: number[]; max?: number; color?: string; label: string}) {
+function Spark({series, max = 100, color, label}: {series: number[]; max?: number; color: string; label: string}) {
 	const w = 300
-	const h = 56
+	const h = 54
 	const id = useMemo(() => `g${Math.random().toString(36).slice(2)}`, [])
-	if (series.length < 2) return <div className="spark skeleton" />
-	const step = w / (series.length - 1)
-	const pts = series.map((v, i) => `${(i * step).toFixed(1)},${(h - 2 - (Math.min(v, max) / max) * (h - 4)).toFixed(1)}`)
+	if (series.length < 2) return <svg className="spark" viewBox={`0 0 ${w} ${h}`} aria-hidden="true" />
+	const step = w / Math.max(series.length - 1, 1)
+	const y = (v: number) => h - 3 - (Math.min(v, max) / max) * (h - 8)
+	const pts = series.map((v, i) => [i * step, y(v)] as const)
+	// Smooth the line with simple cubic segments.
+	let d = `M${pts[0][0]},${pts[0][1]}`
+	for (let i = 1; i < pts.length; i++) {
+		const [x0, y0] = pts[i - 1]
+		const [x1, y1] = pts[i]
+		const cx = (x0 + x1) / 2
+		d += ` C${cx},${y0} ${cx},${y1} ${x1},${y1}`
+	}
 	return (
 		<svg className="spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label={label}>
 			<defs>
 				<linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
-					<stop offset="0" stopColor={color} stopOpacity="0.28" />
+					<stop offset="0" stopColor={color} stopOpacity="0.35" />
 					<stop offset="1" stopColor={color} stopOpacity="0" />
 				</linearGradient>
 			</defs>
-			<path d={`M0,${h} L${pts.join(' L')} L${w},${h} Z`} fill={`url(#${id})`} />
-			<polyline points={pts.join(' ')} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+			<path d={`${d} L${w},${h} L0,${h} Z`} fill={`url(#${id})`} />
+			<path d={d} fill="none" stroke={color} strokeWidth="2.2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
 		</svg>
 	)
 }
 
-const PALETTE = ['var(--blue)', 'var(--mauve)', 'var(--teal)', 'var(--peach)', 'var(--pink)', 'var(--green)', 'var(--yellow)']
+const BAR = ['var(--blue)', 'var(--mauve)', 'var(--teal)', 'var(--peach)', 'var(--pink)', 'var(--green)']
 
-function TopList({items, format, nameOf}: {items: UsageItem[]; format: (n: number) => string; nameOf: (id: string) => string}) {
-	const top = [...items].sort((a, b) => b.used - a.used).slice(0, 5)
-	if (!top.length) return null
-	return (
-		<div className="legend">
-			{top.map((item, i) => (
-				<div key={item.id}>
-					<i style={{background: PALETTE[i % PALETTE.length]}} />
-					<span>{item.name ?? nameOf(item.id)}</span>
-					<span className="mono">{format(item.used)}</span>
-				</div>
-			))}
-		</div>
-	)
-}
-
-function Activity() {
+function Usage() {
 	const cpu = useCpu()
 	const mem = useMemory()
 	const disk = useDisk()
 	const apps = useApps()
-	const nameOf = (id: string) => (id === 'other' ? 'Other' : (apps.data?.find((a) => a.id === id)?.name ?? id))
-	const cpuSeries = useHistory(cpu.data?.totalUsed, cpu.dataUpdatedAt)
-	const memPct = mem.data ? (mem.data.totalUsed / mem.data.size) * 100 : undefined
-	const memSeries = useHistory(memPct, mem.dataUpdatedAt)
+	const [tab, setTab] = useState<'cpu' | 'memory' | 'storage'>('cpu')
+	const lookup = (id: string) => apps.data?.find((a) => a.id === id)
+	const source: {items: UsageItem[]; total: number; fmt: (n: number) => string} =
+		tab === 'cpu'
+			? {items: [...(cpu.data?.apps ?? []), ...(cpu.data?.machines ?? [])], total: 100, fmt: (n) => `${n.toFixed(1)}%`}
+			: tab === 'memory'
+				? {items: [...(mem.data?.apps ?? []), ...(mem.data?.machines ?? [])], total: mem.data?.size ?? 1, fmt: (n) => bytes(n, 1, 1024)}
+				: {items: [...(disk.data?.apps ?? []), ...(disk.data?.machines ?? [])], total: disk.data?.size ?? 1, fmt: (n) => bytes(n)}
+	const top = [...source.items].sort((a, b) => b.used - a.used).slice(0, 6)
+	const max = Math.max(...top.map((t) => t.used), 0.0001)
+	return (
+		<section className="glass card" style={{marginTop: 12}}>
+			<div className="card-head">
+				<strong>What’s using it</strong>
+			</div>
+			<Segmented
+				value={tab}
+				onChange={setTab}
+				label="Resource"
+				options={[
+					{id: 'cpu', label: 'CPU'},
+					{id: 'memory', label: 'Memory'},
+					{id: 'storage', label: 'Storage'},
+				]}
+			/>
+			<div className="toplist">
+				{top.length === 0 && <span className="muted" style={{fontSize: 14}}>Nothing measurable right now.</span>}
+				{top.map((item, i) => {
+					const app = lookup(item.id)
+					const name = item.name ?? app?.name ?? (item.id === 'other' ? 'Other' : item.id)
+					return (
+						<div className="item" key={item.id}>
+							<AppIcon src={app?.icon} name={name} size={28} />
+							<span className="name">{name}</span>
+							<span className="val">{source.fmt(item.used)}</span>
+							<span className="bar">
+								<i style={{width: `${(item.used / max) * 100}%`, background: BAR[i % BAR.length]}} />
+							</span>
+						</div>
+					)
+				})}
+			</div>
+		</section>
+	)
+}
 
-	const diskParts = disk.data
+function Live() {
+	const cpu = useCpu()
+	const mem = useMemory()
+	const disk = useDisk()
+	const temp = useTemp()
+	const uptime = useUptime()
+	const cpuSeries = useHistory(cpu.data?.totalUsed, cpu.dataUpdatedAt)
+	const memSeries = useHistory(mem.data ? (mem.data.totalUsed / mem.data.size) * 100 : undefined, mem.dataUpdatedAt)
+	const parts = disk.data
 		? [
 				{label: 'Apps', value: disk.data.apps.reduce((t, a) => t + a.used, 0), color: 'var(--blue)'},
 				{label: 'Files', value: disk.data.files ?? 0, color: 'var(--mauve)'},
@@ -74,61 +116,69 @@ function Activity() {
 				{label: 'System', value: disk.data.system, color: 'var(--peach)'},
 			].filter((p) => p.value > 0)
 		: []
-
 	return (
 		<>
 			<div className="split">
-				<section className="glass stat" aria-label="CPU">
+				<section className="glass stat">
 					<div className="k">
-						<Icon name="cpu" size={14} /> cpu · {cpu.data?.threads ?? '–'} threads
+						<Icon name="cpu" size={16} /> CPU
 					</div>
 					<div className="v">
-						{cpu.data ? cpu.data.totalUsed.toFixed(1) : '–'}
+						{cpu.data ? cpu.data.totalUsed.toFixed(0) : '–'}
 						<small>%</small>
 					</div>
-					<Spark series={cpuSeries} label="CPU usage over the last two minutes" />
+					<div className="sub">{cpu.data ? `${cpu.data.threads} threads` : ' '}</div>
+					<Spark series={cpuSeries} color="var(--blue)" label="CPU usage over the last two minutes" />
 				</section>
-				<section className="glass stat" aria-label="Memory">
+				<section className="glass stat">
 					<div className="k">
-						<Icon name="memory" size={14} /> ram · {bytes(mem.data?.size, 0, 1024)}
+						<Icon name="memory" size={16} /> Memory
 					</div>
 					<div className="v">
 						{mem.data ? bytes(mem.data.totalUsed, 1, 1024).split(' ')[0] : '–'}
-						<small> {mem.data ? bytes(mem.data.totalUsed, 1, 1024).split(' ')[1] : ''}</small>
+						<small>{mem.data ? bytes(mem.data.totalUsed, 1, 1024).split(' ')[1] : ''}</small>
 					</div>
+					<div className="sub">of {bytes(mem.data?.size, 0, 1024)}</div>
 					<Spark series={memSeries} color="var(--mauve)" label="Memory usage over the last two minutes" />
 				</section>
-			</div>
-			<div className="split" style={{marginTop: 12}}>
-				<section className="glass card">
-					<div className="card-head" style={{marginBottom: 0}}>
-						<strong>Top CPU</strong>
+				<section className="glass stat">
+					<div className="k">
+						<Icon name="thermo" size={16} /> Temperature
 					</div>
-					{cpu.data && <TopList items={[...cpu.data.apps, ...cpu.data.machines]} format={(n) => `${n.toFixed(1)}%`} nameOf={nameOf} />}
+					<div className="v">
+						{temp.data ? Math.round(temp.data.temperature) : '–'}
+						<small>°C</small>
+					</div>
+					<div className="sub" style={{paddingBottom: 4, textTransform: 'capitalize'}}>
+						{temp.data?.warning ?? ' '}
+					</div>
 				</section>
-				<section className="glass card">
-					<div className="card-head" style={{marginBottom: 0}}>
-						<strong>Top memory</strong>
+				<section className="glass stat">
+					<div className="k">
+						<Icon name="clock" size={16} /> Uptime
 					</div>
-					{mem.data && <TopList items={[...mem.data.apps, ...mem.data.machines]} format={(n) => bytes(n, 1, 1024)} nameOf={nameOf} />}
+					<div className="v">{duration(uptime.data)}</div>
+					<div className="sub" style={{paddingBottom: 4}}>
+						since last restart
+					</div>
 				</section>
 			</div>
 			<section className="glass card" style={{marginTop: 12}} aria-label="Storage">
 				<div className="card-head">
 					<strong>Storage</strong>
-					<span className="mono">{disk.data ? `${bytes(disk.data.available, 0)} free of ${bytes(disk.data.size, 0)}` : ''}</span>
+					<span>{disk.data ? `${bytes(disk.data.available, 0)} free of ${bytes(disk.data.size, 0)}` : ''}</span>
 				</div>
 				<div className="stacked" aria-hidden="true">
-					{diskParts.map((p) => (
+					{parts.map((p) => (
 						<i key={p.label} style={{width: `${(p.value / (disk.data?.size || 1)) * 100}%`, background: p.color}} />
 					))}
 				</div>
 				<div className="legend">
-					{diskParts.map((p) => (
+					{parts.map((p) => (
 						<div key={p.label}>
 							<i style={{background: p.color}} />
-							<span>{p.label}</span>
-							<span className="mono">{bytes(p.value)}</span>
+							<span className="name">{p.label}</span>
+							<span className="val">{bytes(p.value)}</span>
 						</div>
 					))}
 				</div>
@@ -137,178 +187,171 @@ function Activity() {
 	)
 }
 
-const NOTIFICATION_TEXT: Record<string, string> = {
-	'update-available': 'An umbrelOS update is available',
-	'migration': 'Data migration finished',
+function Appearance({prefs, setPrefs, wallpaper}: {prefs: Prefs; setPrefs: (p: Prefs) => void; wallpaper?: Wallpaper | null}) {
+	const wp = wallpaperUrl(wallpaper)
+	const brand = wallpaper?.brandColorHsl ? `hsl(${wallpaper.brandColorHsl})` : 'hsl(24 90% 50%)'
+	return (
+		<section className="glass card">
+			<div className="themes" role="radiogroup" aria-label="Theme">
+				{THEMES.map((t) => {
+					const on = prefs.theme === t.id
+					const isWall = t.id === 'umbrel'
+					return (
+						<button
+							key={t.id}
+							role="radio"
+							aria-checked={on}
+							className={`theme-card${on ? ' on' : ''}`}
+							style={{
+								background: isWall && wp ? `linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.45)), url(${wp}) center/cover` : t.bg,
+								color: t.fg,
+								gridColumn: isWall ? 'span 2' : undefined,
+								minHeight: isWall ? 96 : undefined,
+							}}
+							onClick={() => {
+								haptic(6)
+								setPrefs({...prefs, theme: t.id})
+							}}
+						>
+							<span className="label">{isWall ? 'umbrelOS wallpaper' : t.name}</span>
+							<span className="dots">
+								{(isWall ? [brand, '#ffffff'] : t.dots).map((d) => (
+									<i key={d} style={{background: d}} />
+								))}
+							</span>
+							{on && (
+								<span className="tick">
+									<Icon name="check" size={14} stroke={3} />
+								</span>
+							)}
+						</button>
+					)
+				})}
+			</div>
+			<div className="accents" role="radiogroup" aria-label="Accent color">
+				{ACCENTS.map((a) => (
+					<button
+						key={a}
+						role="radio"
+						aria-checked={prefs.accent === a}
+						aria-label={a === 'wallpaper' ? 'Match wallpaper' : a}
+						className={`accent-btn${prefs.accent === a ? ' on' : ''}`}
+						style={{background: a === 'wallpaper' ? brand : `var(--${a})`}}
+						onClick={() => {
+							haptic(6)
+							setPrefs({...prefs, accent: a})
+						}}
+					>
+						{a === 'wallpaper' && <Icon name="wallpaper" size={18} />}
+					</button>
+				))}
+			</div>
+		</section>
+	)
 }
-const notificationText = (n: string) => NOTIFICATION_TEXT[n] ?? n.replace(/[-_]/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
 
 export function More({prefs, setPrefs, onSignedOut}: {prefs: Prefs; setPrefs: (p: Prefs) => void; onSignedOut: () => void}) {
 	const boot = useBootstrap()
 	const user = useUser()
-	const notifications = useNotifications()
-	const action = useAction()
 	const confirm = useConfirm()
 	const toast = useToast()
 	const qc = useQueryClient()
-	const update = useQuery({queryKey: ['system.checkUpdate'], queryFn: () => query<{available: boolean; name: string; version: string}>('system.checkUpdate'), staleTime: 30 * 60_000, retry: false})
-	const signingOut = useRef(false)
+	const update = useQuery({
+		queryKey: ['system.checkUpdate'],
+		queryFn: () => query<{available: boolean; name: string; version: string}>('system.checkUpdate'),
+		staleTime: 30 * 60_000,
+		retry: false,
+	})
 
 	const power = async (kind: 'restart' | 'shutdown') => {
 		const ok = await confirm({
 			title: kind === 'restart' ? 'Restart your Umbrel?' : 'Shut down your Umbrel?',
 			body:
 				kind === 'restart'
-					? 'All apps and machines stop and come back once umbrelOS has restarted. This takes a few minutes.'
-					: 'All apps and machines stop. You’ll need to turn the Umbrel back on yourself (for a VM: from FygoNAS).',
+					? 'All apps and machines stop, then come back once umbrelOS has restarted. This takes a few minutes.'
+					: 'All apps and machines stop. You’ll need to turn the Umbrel back on yourself (for a VM, from FygoNAS).',
 			confirm: kind === 'restart' ? 'Restart' : 'Shut down',
 			danger: true,
+			icon: kind === 'restart' ? 'restart' : 'power',
 		})
 		if (!ok) return
 		try {
 			await mutate(`system.${kind}`)
-			toast(kind === 'restart' ? 'Umbrel is restarting' : 'Umbrel is shutting down')
+			toast(kind === 'restart' ? 'Your Umbrel is restarting' : 'Your Umbrel is shutting down')
 		} catch (e) {
 			toast((e as Error).message, true)
 		}
 	}
-
 	const signOut = async () => {
-		if (signingOut.current) return
-		signingOut.current = true
+		const ok = await confirm({title: 'Sign out?', body: 'This phone is signed out and removed from your Umbrel’s devices.', confirm: 'Sign out', icon: 'signout'})
+		if (!ok) return
 		await logout().catch(() => {})
 		qc.clear()
 		onSignedOut()
 	}
 
+	const Row = ({icon, color, label, onClick, href}: {icon: Parameters<typeof Icon>[0]['name']; color: string; label: string; onClick?: () => void; href?: string}) => {
+		const inner = (
+			<>
+				<span className="row-ico" style={{'--c': color} as CSSProperties}>
+					<Icon name={icon} size={19} />
+				</span>
+				<span className="main">
+					<b style={{fontWeight: 550}}>{label}</b>
+				</span>
+				<Icon name="chevron" size={18} className="chev" />
+			</>
+		)
+		return href ? (
+			<a className="row" href={href} target="_blank" rel="noopener noreferrer" style={{minHeight: 56}}>
+				{inner}
+			</a>
+		) : (
+			<button className="row" onClick={onClick} style={{minHeight: 56}}>
+				{inner}
+			</button>
+		)
+	}
+
 	return (
-		<>
-			<h1 className="title">System</h1>
-			<p className="subtitle">
-				{user.data?.name ?? ' '}
-				{user.data?.role ? ` · ${user.data.role}` : ''}
-			</p>
-
-			<Activity />
-
-			<div className="section-head">
-				<h2>Notifications</h2>
+		<div className="stagger">
+			<div>
+				<h1 className="title">System</h1>
+				<p className="subtitle">
+					{boot.umbrel?.device ?? 'Umbrel'} · {boot.umbrel?.name ?? boot.umbrel?.version}
+				</p>
 			</div>
-			<section className="glass list-card">
-				{(notifications.data ?? []).length === 0 ? (
-					<div className="empty" style={{padding: 22}}>
-						You’re all caught up.
-					</div>
-				) : (
-					notifications.data!.map((n) => (
-						<div key={n} className="row" style={{cursor: 'default'}}>
-							<span className="row-ico" style={{'--c': 'var(--yellow)'} as React.CSSProperties}>
-								<Icon name="bell" size={18} />
-							</span>
-							<span className="main">
-								<b style={{fontWeight: 500, whiteSpace: 'normal'}}>{notificationText(n)}</b>
-							</span>
-							<button className="icon-btn" aria-label="Dismiss" onClick={() => action.mutate({path: 'notifications.clear', input: n})}>
-								<Icon name="close" size={16} />
-							</button>
-						</div>
-					))
-				)}
-			</section>
-
-			<div className="section-head">
-				<h2>Appearance</h2>
+			<div>
+				<Live />
+				<Usage />
 			</div>
-			<section className="glass card">
-				<div className="themes" role="radiogroup" aria-label="Theme">
-					{THEMES.map((t) => (
-						<button
-							key={t.id}
-							role="radio"
-							aria-checked={prefs.theme === t.id}
-							className={`theme-card${prefs.theme === t.id ? ' on' : ''}`}
-							style={{background: t.bg, color: t.fg}}
-							onClick={() => setPrefs({...prefs, theme: t.id})}
-						>
-							{t.name}
-							<span className="dots">
-								{t.dots.map((d) => (
-									<i key={d} style={{background: d}} />
-								))}
-							</span>
-						</button>
-					))}
+			<section>
+				<div className="section-head">
+					<h2>Appearance</h2>
 				</div>
-				<div className="accents" role="radiogroup" aria-label="Accent color">
-					{ACCENTS.map((a) => (
-						<button
-							key={a}
-							role="radio"
-							aria-checked={prefs.accent === a}
-							aria-label={a}
-							className={`accent-btn${prefs.accent === a ? ' on' : ''}`}
-							style={{background: `var(--${a})`}}
-							onClick={() => setPrefs({...prefs, accent: a})}
-						/>
-					))}
+				<Appearance prefs={prefs} setPrefs={setPrefs} wallpaper={user.data?.wallpaper} />
+			</section>
+			<section>
+				<div className="section-head">
+					<h2>Your Umbrel</h2>
+				</div>
+				<KV
+					rows={[
+						['Device', boot.umbrel?.device ?? '–'],
+						['Address', boot.umbrel?.host ?? '–'],
+						['umbrelOS', boot.umbrel?.version ?? '–'],
+						['Software update', update.data ? (update.data.available ? `${update.data.name} available` : 'Up to date') : '–'],
+						['Signed in as', `${user.data?.name ?? '–'}${user.data?.role ? ` (${user.data.role})` : ''}`],
+					]}
+				/>
+				<div className="glass group" style={{'--inset': '62px'} as CSSProperties}>
+					<Row icon="open" color="var(--blue)" label="Open umbrelOS" href={boot.umbrel?.url} />
+					<Row icon="restart" color="var(--peach)" label="Restart Umbrel" onClick={() => power('restart')} />
+					<Row icon="power" color="var(--red)" label="Shut down Umbrel" onClick={() => power('shutdown')} />
+					<Row icon="signout" color="#8e8e93" label="Sign out of this device" onClick={signOut} />
 				</div>
 			</section>
-
-			<div className="section-head">
-				<h2>Your Umbrel</h2>
-			</div>
-			<section className="glass card">
-				<dl className="kv" style={{margin: 0}}>
-					<dt>Device</dt>
-					<dd>{boot.umbrel?.device ?? '–'}</dd>
-					<dt>Address</dt>
-					<dd>{boot.umbrel?.host}</dd>
-					<dt>umbrelOS</dt>
-					<dd>{boot.umbrel?.version}</dd>
-					<dt>Update</dt>
-					<dd>{update.data ? (update.data.available ? `${update.data.name} available` : 'Up to date') : '–'}</dd>
-					<dt>Touch</dt>
-					<dd>v{boot.touch.version} · {boot.session?.mode === 'native' ? 'device session' : 'legacy session'}</dd>
-				</dl>
-			</section>
-			<section className="glass list-card" style={{marginTop: 12}}>
-				<a className="row" href={boot.umbrel?.url} target="_blank" rel="noopener noreferrer" style={{color: 'inherit', textDecoration: 'none'}}>
-					<span className="row-ico">
-						<Icon name="open" size={18} />
-					</span>
-					<span className="main">
-						<b style={{fontWeight: 500}}>Open umbrelOS dashboard</b>
-					</span>
-					<Icon name="chevron" size={18} className="muted" />
-				</a>
-				<button className="row" onClick={() => power('restart')}>
-					<span className="row-ico" style={{'--c': 'var(--peach)'} as React.CSSProperties}>
-						<Icon name="restart" size={18} />
-					</span>
-					<span className="main">
-						<b style={{fontWeight: 500}}>Restart Umbrel</b>
-					</span>
-				</button>
-				<button className="row" onClick={() => power('shutdown')}>
-					<span className="row-ico" style={{'--c': 'var(--red)'} as React.CSSProperties}>
-						<Icon name="power" size={18} />
-					</span>
-					<span className="main">
-						<b style={{fontWeight: 500}}>Shut down Umbrel</b>
-					</span>
-				</button>
-				<button className="row" onClick={signOut}>
-					<span className="row-ico" style={{'--c': 'var(--muted)'} as React.CSSProperties}>
-						<Icon name="signout" size={18} />
-					</span>
-					<span className="main">
-						<b style={{fontWeight: 500}}>Sign out of this device</b>
-					</span>
-				</button>
-			</section>
-			<p className="muted mono" style={{fontSize: 11, textAlign: 'center', margin: '22px 0 0'}}>
-				UmbrelOS Touch {boot.touch.version} · not affiliated with Umbrel
-			</p>
-		</>
+			<p className="footer-note">UmbrelOS Touch {boot.touch.version} · Not affiliated with Umbrel</p>
+		</div>
 	)
 }

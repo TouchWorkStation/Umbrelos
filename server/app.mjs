@@ -15,7 +15,7 @@ import express from 'express'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {newSessionId} from './store.mjs'
 
-export const VERSION = '0.1.0'
+export const VERSION = '0.2.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -38,6 +38,7 @@ export const ALLOWED = {
 	'apps.state': 'query',
 	'apps.details': 'query',
 	'apps.updates': 'query',
+	'apps.recentlyOpened': 'query',
 	'apps.logs': 'query',
 	'apps.installReview': 'query',
 	'appStore.registry': 'query',
@@ -86,6 +87,14 @@ function nativeClientFor(userAgent = '') {
 	return {id: 'umbrel-touch', platform, deviceClass, appVersion: VERSION, appBuild: '1', osVersion: 'web'}
 }
 
+// umbreld returns {id, brandColorHsl} (e.g. "259 100% 59%"); pass through only safe values.
+export function wallpaperOf(w) {
+	if (!w || typeof w !== 'object') return null
+	const id = /^\d{1,3}$/.test(String(w.id)) ? String(w.id) : null
+	const brand = /^\d{1,3}(\.\d+)? \d{1,3}(\.\d+)?% \d{1,3}(\.\d+)?%$/.test(String(w.brandColorHsl)) ? String(w.brandColorHsl) : null
+	return id ? {id, brandColorHsl: brand} : null
+}
+
 export function normalizeUmbrelUrl(input) {
 	let value = String(input ?? '').trim()
 	if (!value) throw new Error('Enter your Umbrel’s address')
@@ -111,7 +120,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 	app.use((req, res, next) => {
 		res.set({
 			'Content-Security-Policy':
-				"default-src 'self'; img-src * data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+				"default-src 'self'; img-src * data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
 			'Referrer-Policy': 'no-referrer',
 			'X-Content-Type-Options': 'nosniff',
 		})
@@ -232,6 +241,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 				userId: a.userId,
 				name: a.name,
 				avatar: a.avatarUrl?.startsWith('/api/accounts/') ? `/api/umbrel-avatar?path=${encodeURIComponent(a.avatarUrl)}` : null,
+				wallpaper: wallpaperOf(a.wallpaper),
 			}))
 		} catch (error) {
 			out.umbrel = {url: umbrel.baseUrl, host, reachable: false, error: error.message}
@@ -262,6 +272,28 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 		} catch (error) {
 			sendError(res, error)
 		}
+	})
+
+	// The account's own umbrelOS wallpaper, served from the user's Umbrel. umbrelOS
+	// ships an AVIF and a JPEG of each; the id is validated so only those can be read.
+	api.get('/umbrel-wallpaper/:id', async (req, res) => {
+		const umbrel = getClient()
+		const id = req.params.id
+		if (!umbrel || !/^\d{1,3}$/.test(id)) return res.status(404).end()
+		for (const [path, type] of [
+			[`/assets/wallpapers/generated-avif/medium/${id}.avif`, 'image/avif'],
+			[`/assets/wallpapers/${id}.jpg`, 'image/jpeg'],
+		]) {
+			try {
+				const upstream = await fetchImpl(`${umbrel.baseUrl}${path}`, {signal: AbortSignal.timeout(10_000)})
+				if (!upstream.ok || !(upstream.headers.get('content-type') ?? '').startsWith('image/')) continue
+				res.set({'Content-Type': type, 'Cache-Control': 'public, max-age=604800, immutable'})
+				return res.send(Buffer.from(await upstream.arrayBuffer()))
+			} catch {
+				/* try the next format */
+			}
+		}
+		res.status(404).end()
 	})
 
 	api.get('/umbrel-avatar', async (req, res) => {

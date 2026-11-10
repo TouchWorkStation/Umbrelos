@@ -3,9 +3,24 @@ import {useMemo, useState} from 'react'
 import type {UserApp} from '../api'
 import {useAction, useApps, useUpdates} from '../data'
 import {Icon} from '../icons'
-import {AppIcon, StatusPill, appStatus, useConfirm} from '../ui'
+import {AppIcon, Segmented, StatusPill, appStatus, haptic, isAppBusy, useConfirm} from '../ui'
 
 type Filter = 'all' | 'running' | 'stopped' | 'updates'
+
+export function SearchField({value, onChange, placeholder}: {value: string; onChange: (v: string) => void; placeholder: string}) {
+	return (
+		<label className="search glass">
+			<Icon name="search" size={19} />
+			<span className="sr-only">{placeholder}</span>
+			<input type="search" enterKeyHint="search" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+			{value && (
+				<button type="button" className="clear" aria-label="Clear search" onClick={() => onChange('')}>
+					<Icon name="close" size={14} stroke={2.4} />
+				</button>
+			)}
+		</label>
+	)
+}
 
 export function Apps({onOpenApp}: {onOpenApp: (app: UserApp) => void}) {
 	const apps = useApps()
@@ -32,66 +47,95 @@ export function Apps({onOpenApp}: {onOpenApp: (app: UserApp) => void}) {
 	})
 
 	const updateAll = async () => {
-		const ids = list.filter((a) => updateMap.has(a.id))
+		const targets = list.filter((a) => updateMap.has(a.id))
 		const ok = await confirm({
-			title: `Update ${ids.length} apps?`,
-			body: `${ids.map((a) => a.name).join(', ')} will update one after another. Each app restarts while it updates.`,
+			title: `Update ${targets.length} apps?`,
+			body: `${targets.map((a) => a.name).join(', ')} will update one after another. Each app restarts while it updates.`,
 			confirm: 'Update all',
+			icon: 'update',
 		})
 		if (!ok) return
-		for (const app of ids) {
+		for (const app of targets) {
 			await action
 				.mutateAsync({path: 'apps.update', input: {appId: app.id}, optimistic: {appId: app.id, state: 'updating'}, done: `${app.name} updated`})
 				.catch(() => {})
 		}
 	}
 
+	const segments: {id: Filter; label: string; count?: number}[] = [
+		{id: 'all', label: 'All', count: counts.all},
+		{id: 'running', label: 'Running', count: counts.running},
+		{id: 'stopped', label: 'Stopped', count: counts.stopped},
+	]
+	if (counts.updates) segments.push({id: 'updates', label: 'Updates', count: counts.updates})
+
 	return (
-		<>
-			<h1 className="title">Apps</h1>
-			<p className="subtitle">
-				{apps.isLoading ? 'Loading…' : `${counts.running} running · ${counts.stopped} stopped${counts.updates ? ` · ${counts.updates} to update` : ''}`}
-			</p>
-			<label className="search">
-				<Icon name="search" size={18} />
-				<span className="sr-only">Search apps</span>
-				<input type="search" placeholder={`Search ${list.length} apps`} value={q} onChange={(e) => setQ(e.target.value)} />
-			</label>
-			<div className="filters" role="tablist" aria-label="Filter apps">
-				{(['all', 'running', 'stopped', 'updates'] as Filter[]).map((f) => (
-					<button key={f} role="tab" aria-selected={filter === f} className={`filter${filter === f ? ' on' : ''}`} onClick={() => setFilter(f)}>
-						{f} {counts[f]}
-					</button>
-				))}
+		<div className="stagger">
+			<div>
+				<h1 className="title">Apps</h1>
+				<p className="subtitle">
+					{apps.isLoading ? 'Loading…' : `${counts.running} running${counts.stopped ? ` · ${counts.stopped} stopped` : ''}${counts.updates ? ` · ${counts.updates} to update` : ''}`}
+				</p>
 			</div>
+			<SearchField value={q} onChange={setQ} placeholder={`Search ${list.length} apps`} />
+			<Segmented value={filter} options={segments} onChange={setFilter} label="Filter apps" />
 			{filter === 'updates' && counts.updates > 1 && (
-				<button className="btn primary block" style={{margin: '4px 0 12px'}} onClick={updateAll} disabled={action.isPending}>
+				<button className="btn primary block" style={{marginBottom: 14}} onClick={updateAll} disabled={action.isPending}>
 					<Icon name="update" size={20} />
 					Update all {counts.updates}
 				</button>
 			)}
-			<div className="rows">
-				{apps.isLoading &&
-					Array.from({length: 6}, (_, i) => <div key={i} className="skeleton" style={{height: 62, margin: '2px 0'}} />)}
-				{shown.map((app) => {
-					const status = appStatus(app.state, updateMap.has(app.id))
-					return (
-						<button key={app.id} className="row" onClick={() => onOpenApp(app)}>
-							<AppIcon src={app.icon} name={app.name ?? app.id} size={48} />
-							<span className="main">
-								<b>{app.name ?? app.id}</b>
-								<span>
-									{app.error
-										? app.error
-										: `v${app.version}${updateMap.has(app.id) ? ` → ${updateMap.get(app.id)}` : ''}${app.port ? ` · :${app.port}` : ''}`}
+			{apps.isLoading ? (
+				<div className="glass group">
+					{Array.from({length: 6}, (_, i) => (
+						<div key={i} className="row static">
+							<div className="skeleton" style={{width: 46, height: 46, borderRadius: 12}} />
+							<div style={{flex: 1}}>
+								<div className="skeleton" style={{width: '50%', height: 12, marginBottom: 8}} />
+								<div className="skeleton" style={{width: '30%', height: 10}} />
+							</div>
+						</div>
+					))}
+				</div>
+			) : shown.length === 0 ? (
+				<div className="glass empty">
+					<span className="big">
+						<Icon name={q ? 'search' : 'check'} size={30} />
+					</span>
+					<b>{q ? 'No matches' : filter === 'updates' ? 'All up to date' : 'Nothing here'}</b>
+					{q && <span>No apps match “{q}”.</span>}
+				</div>
+			) : (
+				<div className="glass group" style={{'--inset': '74px'} as React.CSSProperties}>
+					{shown.map((app) => {
+						const status = appStatus(app.state, updateMap.has(app.id))
+						const busy = isAppBusy(app.state)
+						return (
+							<button
+								key={app.id}
+								className="row"
+								onClick={() => {
+									haptic(6)
+									onOpenApp(app)
+								}}
+							>
+								<AppIcon src={app.icon} name={app.name ?? app.id} size={46} dim={app.state === 'stopped'} progress={busy ? (app.progress || 'spin') : undefined} />
+								<span className="main">
+									<b>{app.name ?? app.id}</b>
+									<span>
+										{app.error
+											? app.error
+											: updateMap.has(app.id)
+												? `${app.version} → ${updateMap.get(app.id)}`
+												: `Version ${app.version}${app.port ? ` · port ${app.port}` : ''}`}
+									</span>
 								</span>
-							</span>
-							<StatusPill {...status} />
-						</button>
-					)
-				})}
-				{!apps.isLoading && shown.length === 0 && <div className="empty">{q ? `No apps match “${q}”.` : 'Nothing here.'}</div>}
-			</div>
-		</>
+								<StatusPill {...status} />
+							</button>
+						)
+					})}
+				</div>
+			)}
+		</div>
 	)
 }

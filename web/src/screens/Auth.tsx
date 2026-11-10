@@ -2,15 +2,24 @@ import {useState, type FormEvent} from 'react'
 
 import {ApiError, login, setup, type Bootstrap} from '../api'
 import {Icon} from '../icons'
-import {initials} from '../ui'
+import {haptic, initials} from '../ui'
 
 function Logo() {
 	return (
 		<div className="logo" aria-hidden="true">
-			<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-				<path d="M3 12a9 9 0 0 1 18 0z" />
-				<path d="M12 12v6.5a2.5 2.5 0 0 1-5 0" />
+			<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+				<path d="M3 12.5a9 9 0 0 1 18 0z" />
+				<path d="M12 12.5v6a2.5 2.5 0 0 1-5 0" />
 			</svg>
+		</div>
+	)
+}
+
+function ErrorBox({message, k}: {message: string; k: number}) {
+	return (
+		<div className="error shake" role="alert" key={k}>
+			<Icon name="alert" size={18} />
+			{message}
 		</div>
 	)
 }
@@ -19,35 +28,33 @@ export function Connect({onDone, unreachable}: {onDone: () => void; unreachable?
 	const [url, setUrl] = useState(unreachable?.url ?? '')
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState('')
+	const [tries, setTries] = useState(0)
 	const submit = async (e: FormEvent) => {
 		e.preventDefault()
 		setBusy(true)
 		setError('')
 		try {
 			await setup(url)
+			haptic(12)
 			onDone()
 		} catch (err) {
 			setError((err as Error).message)
+			setTries((t) => t + 1)
 		} finally {
 			setBusy(false)
 		}
 	}
 	return (
-		<main className="auth">
+		<main className="auth center screen">
 			<Logo />
 			<h1>{unreachable ? 'Can’t reach your Umbrel' : 'Connect your Umbrel'}</h1>
 			<p className="lead">
 				{unreachable
-					? `UmbrelOS Touch couldn’t reach ${unreachable.url}. Make sure it’s on and on this network, or enter its new address.`
-					: 'Enter the address you use to open umbrelOS in a browser. Nothing on your Umbrel is changed.'}
+					? `UmbrelOS Touch couldn’t reach ${unreachable.url}. Check that it’s on and on this network, or enter its new address.`
+					: 'Enter the address you use to open umbrelOS. Nothing on your Umbrel is changed.'}
 			</p>
 			<form onSubmit={submit}>
-				{error && (
-					<div className="error" role="alert">
-						<Icon name="alert" size={18} />
-						{error}
-					</div>
-				)}
+				{error && <ErrorBox message={error} k={tries} />}
 				<div className="field">
 					<label htmlFor="url">Umbrel address</label>
 					<input
@@ -72,76 +79,63 @@ export function Connect({onDone, unreachable}: {onDone: () => void; unreachable?
 	)
 }
 
-export function Login({boot, onDone}: {boot: Bootstrap; onDone: () => void}) {
+export function Login({boot, userId, setUserId, onDone}: {boot: Bootstrap; userId?: string; setUserId: (id: string) => void; onDone: () => void}) {
 	const accounts = boot.accounts
-	const [userId, setUserId] = useState(accounts[0]?.userId)
+	const account = accounts.find((a) => a.userId === userId) ?? accounts[0]
 	const [password, setPassword] = useState('')
 	const [totp, setTotp] = useState('')
 	const [needTotp, setNeedTotp] = useState(false)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState('')
+	const [tries, setTries] = useState(0)
 
 	const submit = async (e: FormEvent) => {
 		e.preventDefault()
 		setBusy(true)
 		setError('')
 		try {
-			await login({password, userId, ...(needTotp && totp ? {totpToken: totp.replace(/\s/g, '')} : {})})
+			await login({password, userId: account?.userId, ...(needTotp && totp ? {totpToken: totp.replace(/\s/g, '')} : {})})
+			haptic(12)
 			onDone()
 		} catch (err) {
 			const message = (err as ApiError).message
-			if (/2FA/i.test(message)) {
-				if (needTotp) setError(message)
-				setNeedTotp(true)
-			} else setError(message)
+			if (/2FA/i.test(message) && !needTotp) setNeedTotp(true)
+			else {
+				setError(message)
+				setTries((t) => t + 1)
+				haptic([20, 40, 20])
+			}
 		} finally {
 			setBusy(false)
 		}
 	}
 
 	return (
-		<main className="auth">
-			<Logo />
-			<h1>Sign in</h1>
-			<p className="lead">Use your umbrelOS password. UmbrelOS Touch shows up as its own device in umbrelOS, so you can sign it out from there any time.</p>
-			<div className="glass device-card">
-				<span className="dot live" />
-				<div style={{flex: 1, minWidth: 0}}>
-					<div style={{fontWeight: 600, fontSize: 14}}>{boot.umbrel?.device ?? 'Umbrel'}</div>
-					<div className="mono muted" style={{fontSize: 12, marginTop: 2}}>
-						{boot.umbrel?.host} · {boot.umbrel?.name ?? `umbrelOS ${boot.umbrel?.version}`}
-					</div>
+		<main className="auth center screen">
+			{accounts.length > 1 ? (
+				<div className="accounts" role="radiogroup" aria-label="Account">
+					{accounts.map((a) => (
+						<button type="button" key={a.userId} role="radio" aria-checked={a.userId === account?.userId} className="account" onClick={() => setUserId(a.userId)}>
+							<span className="avatar">{a.avatar ? <img src={a.avatar} alt="" /> : initials(a.name)}</span>
+							{a.name}
+						</button>
+					))}
 				</div>
-			</div>
+			) : (
+				<span className="avatar lg">{account?.avatar ? <img src={account.avatar} alt="" /> : initials(account?.name)}</span>
+			)}
+			<h1>Welcome back{account?.name ? `, ${account.name.split(' ')[0]}` : ''}</h1>
+			<p className="lead">Sign in with your umbrelOS password.</p>
 			<form onSubmit={submit}>
-				{accounts.length > 1 && (
-					<div className="accounts" role="radiogroup" aria-label="Account">
-						{accounts.map((a) => (
-							<button
-								type="button"
-								key={a.userId}
-								role="radio"
-								aria-checked={a.userId === userId}
-								className={`account${a.userId === userId ? ' on' : ''}`}
-								onClick={() => setUserId(a.userId)}
-							>
-								<span className="avatar">{a.avatar ? <img src={a.avatar} alt="" /> : initials(a.name)}</span>
-								{a.name}
-							</button>
-						))}
-					</div>
-				)}
-				{error && (
-					<div className="error" role="alert">
-						<Icon name="alert" size={18} />
-						{error}
-					</div>
-				)}
+				{error && <ErrorBox message={error} k={tries} />}
 				<div className="field">
-					<label htmlFor="password">{accounts.length === 1 ? `Password for ${accounts[0].name}` : 'Password'}</label>
+					<label htmlFor="password" className="sr-only">
+						Password
+					</label>
 					<input
 						id="password"
 						type="password"
+						placeholder="Password"
 						autoComplete="current-password"
 						value={password}
 						onChange={(e) => setPassword(e.target.value)}
@@ -150,18 +144,20 @@ export function Login({boot, onDone}: {boot: Bootstrap; onDone: () => void}) {
 					/>
 				</div>
 				{needTotp && (
-					<div className="field">
-						<label htmlFor="totp">2FA code</label>
+					<div className="field screen">
+						<label htmlFor="totp">Two-factor code</label>
 						<input
 							id="totp"
 							inputMode="numeric"
 							autoComplete="one-time-code"
 							pattern="[0-9 ]*"
 							maxLength={7}
+							placeholder="6-digit code"
 							value={totp}
 							onChange={(e) => setTotp(e.target.value)}
 							autoFocus
 							required
+							style={{textAlign: 'center', letterSpacing: '0.3em', fontSize: 20}}
 						/>
 						<span className="hint">From your authenticator app.</span>
 					</div>
@@ -171,6 +167,19 @@ export function Login({boot, onDone}: {boot: Bootstrap; onDone: () => void}) {
 					{busy ? 'Signing in…' : 'Sign in'}
 				</button>
 			</form>
+			<div className="glass device-card" style={{marginTop: 28, marginBottom: 0}}>
+				<span className="dot live" />
+				<div style={{flex: 1, minWidth: 0}}>
+					<div style={{fontWeight: 600, fontSize: 14}}>{boot.umbrel?.device ?? 'Umbrel'}</div>
+					<div className="muted" style={{fontSize: 12.5, marginTop: 2}}>
+						{boot.umbrel?.host} · {boot.umbrel?.name ?? `umbrelOS ${boot.umbrel?.version}`}
+					</div>
+				</div>
+				<Icon name="shield" size={20} className="muted" />
+			</div>
+			<p className="footer-note" style={{marginTop: 14}}>
+				Shows up as its own device in umbrelOS, so you can sign it out from there.
+			</p>
 		</main>
 	)
 }

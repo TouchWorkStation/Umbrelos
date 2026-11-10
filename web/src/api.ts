@@ -53,7 +53,7 @@ export type Bootstrap = {
 		onboarded?: boolean
 		error?: string
 	}
-	accounts: {userId: string; name: string; avatar: string | null}[]
+	accounts: {userId: string; name: string; avatar: string | null; wallpaper: Wallpaper | null}[]
 	session: null | {accountId: string; mode: 'native' | 'legacy'}
 }
 
@@ -64,6 +64,9 @@ export const login = (body: {password: string; totpToken?: string; userId?: stri
 export const logout = () => post('/api/auth/logout')
 
 // ---- umbreld shapes ---------------------------------------------------------
+
+export type Wallpaper = {id: string; brandColorHsl: string | null}
+export type User = {userId: string; name: string; role: 'owner' | 'member'; avatarUrl?: string; wallpaper?: Wallpaper}
 
 export type AppState =
 	| 'unknown'

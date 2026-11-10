@@ -11,6 +11,7 @@ import {
 	type Machine,
 	type MemoryUsage,
 	type Registry,
+	type User,
 	type UserApp,
 } from './api'
 import {isAppBusy, useToast} from './ui'
@@ -28,8 +29,9 @@ export function useApps() {
 }
 export const useUpdates = () =>
 	useQuery({queryKey: ['apps.updates'], queryFn: () => query<{id: string; version: string}[]>('apps.updates'), refetchInterval: 5 * 60_000})
-export const useUser = () =>
-	useQuery({queryKey: ['user.get'], queryFn: () => query<{name: string; role: 'owner' | 'member'}>('user.get'), staleTime: 5 * 60_000})
+export const useUser = () => useQuery({queryKey: ['user.get'], queryFn: () => query<User>('user.get'), staleTime: 5 * 60_000})
+export const useRecent = () =>
+	useQuery({queryKey: ['apps.recentlyOpened'], queryFn: () => query<string[]>('apps.recentlyOpened'), staleTime: 30_000, retry: false})
 
 const live = (key: string, ms = 3000) => ({queryKey: [key], queryFn: () => query(key), refetchInterval: ms})
 export const useCpu = () => useQuery({...live('system.cpuUsage'), queryFn: () => query<CpuUsage>('system.cpuUsage')})
@@ -70,7 +72,9 @@ export function useAction() {
 				)
 			}
 		},
-		onSuccess: (_, a) => a.done && toast(a.done),
+		onSuccess: (_, a) => {
+			if (a.done) toast(a.done)
+		},
 		onError: (error: Error) => toast(error.message, true),
 		onSettled: (_, __, a) => {
 			const domain = a.path.split('.')[0]

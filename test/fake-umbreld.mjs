@@ -4,9 +4,18 @@
 // Umbrel. It is never shipped or used by the app itself.
 
 import http from 'node:http'
+import {readFile} from 'node:fs/promises'
 import {randomBytes} from 'node:crypto'
 
-export function startFakeUmbreld({port = 0, accessTtlMs = 60 * 60 * 1000, legacy = false, password = 'correct horse'} = {}) {
+export function startFakeUmbreld({
+	port = 0,
+	accessTtlMs = 60 * 60 * 1000,
+	legacy = false,
+	password = 'correct horse',
+	wallpaperDir = process.env.FAKE_WALLPAPER_DIR,
+} = {}) {
+	const wallpaper = {id: process.env.FAKE_WALLPAPER_ID ?? '23', brandColorHsl: process.env.FAKE_BRAND ?? '24 90% 50%'}
+	let baseUrl = ''
 	const tokens = new Map() // access token -> {expiresAt, sessionId}
 	const devices = new Map() // device token -> sessionId
 	const calls = []
@@ -46,7 +55,7 @@ export function startFakeUmbreld({port = 0, accessTtlMs = 60 * 60 * 1000, legacy
 	const procedures = {
 		'system.version': {kind: 'query', public: true, run: () => ({version: '2.0.0', name: 'umbrelOS 2.0'})},
 		'system.discoveryInfo': {kind: 'query', public: true, run: () => ({id: 'abc', device: 'Linux VM', version: '2.0.0', onboarded: true})},
-		'user.listAccounts': {kind: 'query', public: true, run: () => [{userId: 'owner', name: 'Chris', language: 'en'}]},
+		'user.listAccounts': {kind: 'query', public: true, run: () => [{userId: 'owner', name: 'Chris', language: 'en', wallpaper}]},
 		'user.loginNative': {
 			kind: 'mutation',
 			public: true,
@@ -85,7 +94,8 @@ export function startFakeUmbreld({port = 0, accessTtlMs = 60 * 60 * 1000, legacy
 				return true
 			},
 		},
-		'user.get': {kind: 'query', run: () => ({userId: 'owner', name: 'Chris', role: 'owner'})},
+		'user.get': {kind: 'query', run: () => ({userId: 'owner', name: 'Chris', role: 'owner', wallpaper})},
+		'apps.recentlyOpened': {kind: 'query', run: () => ['immich', 'home-assistant']},
 		'system.uptime': {kind: 'query', run: () => 1_234_567},
 		'system.cpuTemperature': {kind: 'query', run: () => ({warning: 'normal', temperature: 52})},
 		'system.cpuUsage': {
@@ -109,11 +119,39 @@ export function startFakeUmbreld({port = 0, accessTtlMs = 60 * 60 * 1000, legacy
 		'apps.restart': {kind: 'mutation', run: () => true},
 		'appStore.registry': {
 			kind: 'query',
-			run: () => [{meta: {id: 'umbrel-app-store', name: 'Umbrel App Store'}, apps: [{id: 'vaultwarden', name: 'Vaultwarden', tagline: 'Passwords', category: 'files', version: '1.32.5', icon: '', description: '', developer: 'Vaultwarden', gallery: [], dependencies: []}]}],
+			run: () => {
+				const shot = (n) => `${baseUrl}/assets/wallpapers/${n}.jpg`
+				const app = (id, name, category, tagline, gallery = [], extra = {}) => ({
+					id, name, category, tagline, version: '1.0.0', icon: '', developer: `${name} team`, gallery, dependencies: [],
+					description: `${name} on your Umbrel. ${tagline}.`, installSize: 250e6, compatible: true, ...extra,
+				})
+				return [{meta: {id: 'umbrel-app-store', name: 'Umbrel App Store'}, apps: [
+					app('immich', 'Immich', 'files', 'Your photos and videos, on your terms', [shot(5), shot(9)]),
+					app('nextcloud', 'Nextcloud', 'files', 'Productivity platform that keeps you in control', [shot(12)]),
+					app('vaultwarden', 'Vaultwarden', 'files', 'Unofficial Bitwarden-compatible password manager'),
+					app('home-assistant', 'Home Assistant', 'automation', 'Home automation that puts local control first', [shot(17)]),
+					app('jellyfin', 'Jellyfin', 'media', 'The free software media system', [shot(20)]),
+					app('plex', 'Plex', 'media', 'Stream movies and TV shows'),
+					app('navidrome', 'Navidrome', 'media', 'Your music collection, everywhere'),
+					app('ollama', 'Ollama', 'ai', 'Run large language models locally', [shot(1)]),
+					app('open-webui', 'Open WebUI', 'ai', 'Chat with local models in your browser', [], {dependencies: ['ollama']}),
+					app('bitcoin', 'Bitcoin Node', 'bitcoin', 'Run your own Bitcoin node', [shot(3)]),
+					app('pi-hole', 'Pi-hole', 'networking', 'Block ads across your whole network'),
+					app('tailscale', 'Tailscale', 'networking', 'Zero-config VPN for your devices'),
+				]}]
+			},
 		},
 		'apps.installReview': {kind: 'query', run: () => ({requiredFolders: [], gpuAccess: false})},
-		'apps.install': {kind: 'mutation', run: () => true},
+		'apps.install': {
+			kind: 'mutation',
+			run: ({appId}) => {
+				if (!apps.some((a) => a.id === appId)) apps.push({...apps[0], id: appId, name: appId.replace(/(^|-)\w/g, (c) => c.replace('-', ' ').toUpperCase()), state: 'ready', port: 8200})
+				return true
+			},
+		},
 		'machines.list': {kind: 'query', run: () => machines},
+		'system.checkUpdate': {kind: 'query', run: () => ({available: false, version: '2.0.0', name: 'umbrelOS 2.0'})},
+		'apps.uninstall': {kind: 'mutation', run: ({appId}) => (apps.splice(apps.findIndex((a) => a.id === appId), 1), true)},
 		'machines.start': {kind: 'mutation', run: ({id}) => ((machines.find((m) => m.id === id).state = 'running'), true)},
 		'notifications.get': {kind: 'query', run: () => notifications},
 		'notifications.clear': {kind: 'mutation', run: (id) => ((notifications = notifications.filter((n) => n !== id)), true)},
@@ -130,6 +168,17 @@ export function startFakeUmbreld({port = 0, accessTtlMs = 60 * 60 * 1000, legacy
 			send(httpStatus, {error: {message, code: -32000, data: {code, httpStatus, path: ''}}})
 		}
 		const url = new URL(req.url, 'http://x')
+		const wp = url.pathname.match(/^\/assets\/wallpapers\/(\d+)\.jpg$/)
+		if (wp) {
+			try {
+				const data = await readFile(`${wallpaperDir ?? '/nonexistent'}/${wp[1]}.jpg`)
+				res.writeHead(200, {'content-type': 'image/jpeg'})
+				return res.end(data)
+			} catch {
+				res.writeHead(404)
+				return res.end()
+			}
+		}
 		const path = url.pathname.replace(/^\/trpc\//, '')
 		const proc = procedures[path]
 		if (!url.pathname.startsWith('/trpc/') || !proc) return fail('NOT_FOUND', `No procedure found on path "${path}"`)
@@ -159,6 +208,7 @@ export function startFakeUmbreld({port = 0, accessTtlMs = 60 * 60 * 1000, legacy
 
 	return new Promise((resolve) => {
 		server.listen(port, '127.0.0.1', () => {
+			baseUrl = `http://127.0.0.1:${server.address().port}`
 			resolve({
 				url: `http://127.0.0.1:${server.address().port}`,
 				calls,

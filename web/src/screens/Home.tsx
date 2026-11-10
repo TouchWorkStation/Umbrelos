@@ -1,136 +1,204 @@
 import {useMemo} from 'react'
 
 import type {UserApp} from '../api'
-import {useApps, useCpu, useDisk, useMemory, useNotifications, useTemp, useUpdates, useUptime, useUser} from '../data'
+import {useApps, useCpu, useDisk, useMemory, useRecent, useTemp, useUpdates, useUptime, useUser} from '../data'
 import {Icon} from '../icons'
-import {AppIcon, appStatus, bytes, duration, greeting, level, pct} from '../ui'
+import {AppIcon, Ring, appStatus, bytes, duration, greeting, haptic, isAppBusy, levelColor, pct, today} from '../ui'
 
-export function Meter({label, used, total, value}: {label: string; used: number; total: number; value: string}) {
-	const p = pct(used, total)
-	return (
-		<div className="meter">
-			<span className="label">{label}</span>
-			<span className="bar" role="meter" aria-label={label} aria-valuenow={Math.round(p)} aria-valuemin={0} aria-valuemax={100}>
-				<i className={level(p)} style={{width: `${p}%`}} />
-			</span>
-			<span className="val">{value}</span>
-		</div>
-	)
-}
-
-export function SystemCard() {
+export function Gauges({onClick}: {onClick?: () => void}) {
 	const cpu = useCpu()
 	const mem = useMemory()
 	const disk = useDisk()
-	const temp = useTemp()
-	const uptime = useUptime()
+	const items = [
+		{
+			k: 'CPU',
+			icon: 'cpu' as const,
+			p: cpu.data?.totalUsed ?? 0,
+			sub: cpu.data ? `${cpu.data.threads} threads` : '–',
+			ready: !!cpu.data,
+		},
+		{
+			k: 'Memory',
+			icon: 'memory' as const,
+			p: mem.data ? pct(mem.data.totalUsed, mem.data.size) : 0,
+			sub: mem.data ? `${bytes(mem.data.totalUsed, 1, 1024)} of ${bytes(mem.data.size, 0, 1024)}` : '–',
+			ready: !!mem.data,
+		},
+		{
+			k: 'Storage',
+			icon: 'disk' as const,
+			p: disk.data ? pct(disk.data.totalUsed, disk.data.size) : 0,
+			sub: disk.data ? `${bytes(disk.data.available, 0)} free` : '–',
+			ready: !!disk.data,
+		},
+	]
 	return (
-		<section className="glass card" aria-label="System health">
-			<div className="card-head">
-				<strong>System</strong>
-				<span className="mono">
-					{temp.data ? `${Math.round(temp.data.temperature)}°C · ` : ''}up {duration(uptime.data)}
-				</span>
-			</div>
-			<div className="meters">
-				<Meter label="cpu" used={cpu.data?.totalUsed ?? 0} total={100} value={cpu.data ? `${cpu.data.totalUsed.toFixed(0)}%` : '–'} />
-				<Meter
-					label="ram"
-					used={mem.data?.totalUsed ?? 0}
-					total={mem.data?.size ?? 1}
-					value={mem.data ? `${bytes(mem.data.totalUsed, 1, 1024)} / ${bytes(mem.data.size, 0, 1024)}` : '–'}
-				/>
-				<Meter
-					label="disk"
-					used={disk.data?.totalUsed ?? 0}
-					total={disk.data?.size ?? 1}
-					value={disk.data ? `${bytes(disk.data.totalUsed, 0)} / ${bytes(disk.data.size, 0)}` : '–'}
-				/>
-			</div>
-		</section>
+		<button className="glass gauges press" onClick={onClick} aria-label="System usage, open details">
+			{items.map((g) => (
+				<div className="gauge" key={g.k}>
+					<Ring value={g.p} color={levelColor(g.p)} label={`${g.k} ${Math.round(g.p)}%`}>
+						<span className="pct">
+							{g.ready ? Math.round(g.p) : '–'}
+							<small>%</small>
+						</span>
+					</Ring>
+					<span className="k">{g.k}</span>
+					<span className="sub">{g.sub}</span>
+				</div>
+			))}
+		</button>
 	)
 }
 
-export function Home({onOpenApp, go}: {onOpenApp: (app: UserApp) => void; go: (tab: 'apps' | 'more') => void}) {
+export function Home({onOpenApp, go}: {onOpenApp: (app: UserApp) => void; go: (tab: 'apps' | 'more' | 'store') => void}) {
 	const user = useUser()
 	const apps = useApps()
 	const updates = useUpdates()
-	const notifications = useNotifications()
+	const recent = useRecent()
+	const temp = useTemp()
+	const uptime = useUptime()
 	const updateIds = useMemo(() => new Set((updates.data ?? []).map((u) => u.id)), [updates.data])
 	const list = apps.data ?? []
+	const byId = useMemo(() => new Map(list.map((a) => [a.id, a])), [list])
 	const running = list.filter((a) => appStatus(a.state).kind === 'running').length
 	const problems = list.filter((a) => a.error || a.state === 'unknown')
+	const updating = (updates.data ?? []).map((u) => byId.get(u.id)).filter(Boolean) as UserApp[]
+	const recentApps = (recent.data ?? []).map((id) => byId.get(id)).filter(Boolean).slice(0, 6) as UserApp[]
 
-	const updateNames = (updates.data ?? []).map((u) => list.find((a) => a.id === u.id)?.name ?? u.id)
 	const summary = apps.isLoading
-		? 'Checking your apps…'
+		? 'Checking on your apps…'
 		: problems.length
 			? `${problems.length} app${problems.length > 1 ? 's need' : ' needs'} attention`
-			: `All systems normal · ${running} of ${list.length} apps running`
+			: list.length
+				? 'Everything is running smoothly.'
+				: 'Your Umbrel is ready for its first app.'
+
+	const open = (app: UserApp) => {
+		haptic(6)
+		onOpenApp(app)
+	}
 
 	return (
-		<>
-			<h1 className="title">
-				{greeting()}
-				{user.data?.name ? `, ${user.data.name.split(' ')[0]}` : ''}
-			</h1>
-			<p className="subtitle">{summary}</p>
+		<div className="stagger">
+			<header className="hero">
+				<div className="eyebrow">{today()}</div>
+				<h1>
+					{greeting()}
+					{user.data?.name ? `, ${user.data.name.split(' ')[0]}` : ''}
+				</h1>
+				<p>{summary}</p>
+			</header>
 
-			<SystemCard />
-
-			{updateNames.length > 0 && (
-				<button className="banner" onClick={() => go('apps')}>
-					<span className="ico">
-						<Icon name="update" size={18} />
+			<div>
+				<Gauges onClick={() => go('more')} />
+				<div className="facts">
+					{temp.data && (
+						<span className="fact">
+							<Icon name="thermo" size={15} />
+							{Math.round(temp.data.temperature)}°C
+						</span>
+					)}
+					<span className="fact">
+						<Icon name="clock" size={15} />
+						Up {duration(uptime.data)}
 					</span>
-					<span className="txt">
-						<b>
-							{updateNames.length} app update{updateNames.length > 1 ? 's' : ''} ready
-						</b>
-						<span>{updateNames.join(', ')}</span>
+					<span className="fact">
+						<Icon name="apps" size={15} />
+						{running}/{list.length} apps running
 					</span>
-					<span className="cta">Review</span>
-				</button>
-			)}
-			{(notifications.data?.length ?? 0) > 0 && (
-				<button className="banner warn" onClick={() => go('more')}>
-					<span className="ico">
-						<Icon name="bell" size={18} />
-					</span>
-					<span className="txt">
-						<b>
-							{notifications.data!.length} notification{notifications.data!.length > 1 ? 's' : ''}
-						</b>
-						<span>From umbrelOS</span>
-					</span>
-					<span className="cta">View</span>
-				</button>
-			)}
-
-			<div className="section-head">
-				<h2>Your apps</h2>
-				<button className="link-btn" onClick={() => go('apps')}>
-					See all
-				</button>
+				</div>
 			</div>
-			{apps.isLoading ? (
-				<div className="app-grid">
-					{Array.from({length: 8}, (_, i) => (
-						<div key={i} className="skeleton" style={{height: 76}} />
-					))}
-				</div>
-			) : list.length === 0 ? (
-				<div className="glass empty">No apps installed yet. Find some in the Store.</div>
-			) : (
-				<div className="app-grid">
-					{list.map((app) => (
-						<button key={app.id} className="app-tile" onClick={() => onOpenApp(app)} aria-label={`${app.name ?? app.id}, ${appStatus(app.state, updateIds.has(app.id)).label}`}>
-							<AppIcon src={app.icon} name={app.name ?? app.id} size={58} badge={appStatus(app.state, updateIds.has(app.id)).kind} />
-							<span className="name">{app.name ?? app.id}</span>
-						</button>
-					))}
-				</div>
+
+			{updating.length > 0 && (
+				<button className="glass callout press" onClick={() => go('apps')}>
+					<span className="ico">
+						<Icon name="update" size={22} />
+					</span>
+					<span className="txt">
+						<b>
+							{updating.length} update{updating.length > 1 ? 's' : ''} available
+						</b>
+						<span>{updating.map((a) => a.name).join(', ')}</span>
+					</span>
+					<span className="icons">
+						{updating.slice(0, 3).map((a) => (
+							<AppIcon key={a.id} src={a.icon} name={a.name} size={28} />
+						))}
+					</span>
+					<Icon name="chevron" size={18} className="muted" />
+				</button>
 			)}
-		</>
+
+			{recentApps.length > 0 && (
+				<section>
+					<div className="section-head">
+						<h2>Jump back in</h2>
+					</div>
+					<div className="recent">
+						{recentApps.map((a) => (
+							<button key={a.id} className="glass recent-card press" onClick={() => open(a)}>
+								<AppIcon src={a.icon} name={a.name} size={40} />
+								<span style={{minWidth: 0, flex: 1}}>
+									<b className="rc-name">{a.name}</b>
+									<span className="rc-open">
+										Open <Icon name="arrow" size={13} stroke={2.2} />
+									</span>
+								</span>
+							</button>
+						))}
+					</div>
+				</section>
+			)}
+
+			<section>
+				<div className="section-head">
+					<h2>Apps</h2>
+					<button className="link-btn" onClick={() => go('apps')}>
+						Manage
+					</button>
+				</div>
+				{apps.isLoading ? (
+					<div className="app-grid">
+						{Array.from({length: 8}, (_, i) => (
+							<div key={i} style={{display: 'grid', justifyItems: 'center', gap: 8}}>
+								<div className="skeleton" style={{width: 60, height: 60, borderRadius: 14}} />
+								<div className="skeleton" style={{width: 48, height: 10}} />
+							</div>
+						))}
+					</div>
+				) : list.length === 0 ? (
+					<div className="glass empty">
+						<span className="big">
+							<Icon name="store" size={30} />
+						</span>
+						<b>No apps yet</b>
+						<span>Install your first app from the App Store.</span>
+						<button className="btn primary small" onClick={() => go('store')}>
+							Browse apps
+						</button>
+					</div>
+				) : (
+					<div className="app-grid">
+						{list.map((app) => {
+							const s = appStatus(app.state, updateIds.has(app.id))
+							const busy = isAppBusy(app.state)
+							return (
+								<button key={app.id} className="app-tile" onClick={() => open(app)} aria-label={`${app.name ?? app.id}, ${s.label}`}>
+									<AppIcon
+										src={app.icon}
+										name={app.name ?? app.id}
+										size={60}
+										dim={app.state === 'stopped'}
+										badge={s.kind === 'update' || s.kind === 'error' ? s.kind : undefined}
+										progress={busy ? (app.progress ? app.progress : 'spin') : undefined}
+									/>
+									<span className="name">{app.name ?? app.id}</span>
+								</button>
+							)
+						})}
+					</div>
+				)}
+			</section>
+		</div>
 	)
 }

@@ -60,7 +60,15 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.equal(r.body.umbrel.reachable, true)
 		assert.equal(r.body.umbrel.host, '127.0.0.1')
 		assert.equal(r.body.accounts[0].name, 'Chris')
+		assert.deepEqual(r.body.accounts[0].wallpaper, {id: '23', brandColorHsl: '24 90% 50%'})
 		assert.equal(r.body.session, null)
+	})
+
+	test('wallpaper route only serves numeric umbrelOS wallpaper ids', async () => {
+		const bad = await fetch(`${touch.base}/api/umbrel-wallpaper/..%2F..%2Fetc`)
+		assert.equal(bad.status, 404)
+		const missing = await fetch(`${touch.base}/api/umbrel-wallpaper/999`)
+		assert.equal(missing.status, 404)
 	})
 
 	test('proxy refuses calls before sign-in', async () => {
@@ -81,7 +89,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.1.0', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.2.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
