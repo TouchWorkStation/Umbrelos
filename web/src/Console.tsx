@@ -16,6 +16,7 @@ import * as RFBModule from '@novnc/novnc/lib/rfb.js'
 import type {Machine} from './api'
 import {Icon} from './icons'
 import {haptic, useToast} from './ui'
+import {useScreenLock} from './Terminal'
 
 type RFBClass = typeof import('@novnc/novnc/lib/rfb.js').default
 // noVNC ships CommonJS; depending on the bundler the class is the default or default.default.
@@ -52,12 +53,14 @@ const readMode = (): Mode => {
 }
 
 export function Console({machine, onClose}: {machine: Machine; onClose: () => void}) {
+	const rootRef = useRef<HTMLDivElement>(null)
 	const screenRef = useRef<HTMLDivElement>(null) // the visible viewport
 	const stageRef = useRef<HTMLDivElement>(null) // zoomed/panned layer holding noVNC
 	const canvasHost = useRef<HTMLDivElement>(null)
 	const cursorRef = useRef<HTMLDivElement>(null)
 	const input = useRef<HTMLTextAreaElement>(null)
 	const rfbRef = useRef<InstanceType<RFBClass>>()
+	useScreenLock(rootRef, false)
 	const [state, setState] = useState<State>('connecting')
 	const [message, setMessage] = useState('')
 	const [mods, setMods] = useState({Ctrl: false, Alt: false, Shift: false})
@@ -138,8 +141,6 @@ export function Console({machine, onClose}: {machine: Machine; onClose: () => vo
 		}
 		connect()
 
-		const prev = document.body.style.overflow
-		document.body.style.overflow = 'hidden'
 		return () => {
 			disposed = true
 			window.clearTimeout(retry)
@@ -150,7 +151,6 @@ export function Console({machine, onClose}: {machine: Machine; onClose: () => vo
 			}
 			socket?.close()
 			rfbRef.current = undefined
-			document.body.style.overflow = prev
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [machine.id, attempt])
@@ -594,7 +594,7 @@ export function Console({machine, onClose}: {machine: Machine; onClose: () => vo
 	const live = state === 'connected'
 
 	return createPortal(
-		<div className="console" role="dialog" aria-modal="true" aria-label={`${machine.name} console`}>
+		<div ref={rootRef} className="console" role="dialog" aria-modal="true" aria-label={`${machine.name} console`}>
 			<header className="console-bar">
 				<button className="round-btn" aria-label="Close console" onClick={onClose}>
 					<Icon name="back" size={20} />

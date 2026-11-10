@@ -37,6 +37,39 @@ export function useVisualViewport(ref: React.RefObject<HTMLElement>) {
 	}, [ref])
 }
 
+// Make a full-screen overlay behave like its own window on iPhone: freeze the page underneath
+// (iOS ignores overflow:hidden on body and will scroll it to "reveal" a focused input), and
+// stop drags outside the real scroll areas from panning the page while the keyboard is up.
+export function useScreenLock(ref: React.RefObject<HTMLElement>, guardTouch = true) {
+	useEffect(() => {
+		const html = document.documentElement
+		const b = document.body.style
+		const y = window.scrollY
+		const saved = {position: b.position, top: b.top, left: b.left, right: b.right, width: b.width, overflow: b.overflow}
+		Object.assign(b, {position: 'fixed', top: `-${y}px`, left: '0', right: '0', width: '100%', overflow: 'hidden'})
+		html.classList.add('screen-locked')
+		const el = ref.current
+		const scrollers = '.xterm-viewport, .console-keys, .term-paste textarea'
+		const onMove = (e: TouchEvent) => {
+			if (e.touches.length > 1) return void e.preventDefault() // no pinch-zoom of the page
+			const t = e.target as Element | null
+			if (t?.closest?.(scrollers)) return
+			e.preventDefault()
+		}
+		if (guardTouch) el?.addEventListener('touchmove', onMove, {passive: false})
+		// iOS can still pan the page after the keyboard opens; pull it back.
+		const onScroll = () => window.scrollY && window.scrollTo(0, 0)
+		window.addEventListener('scroll', onScroll)
+		return () => {
+			if (guardTouch) el?.removeEventListener('touchmove', onMove)
+			window.removeEventListener('scroll', onScroll)
+			Object.assign(b, saved)
+			html.classList.remove('screen-locked')
+			window.scrollTo(0, y)
+		}
+	}, [ref, guardTouch])
+}
+
 function cssVar(name: string, fallback: string) {
 	return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
 }
@@ -59,6 +92,7 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 	mods.current = {ctrl, alt}
 	const toast = useToast()
 	useVisualViewport(root)
+	useScreenLock(root)
 
 	useEffect(() => {
 		const el = host.current
@@ -177,6 +211,8 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 				const cursorBottom = 6 + (buf.cursorY + 1) * rowH + 4
 				const shift = atBottom ? Math.max(0, cursorBottom - frame.clientHeight) : 0
 				el.style.transform = shift ? `translateY(${-Math.ceil(shift)}px)` : ''
+				// Keep xterm's hidden input inside the visible area so iOS never scrolls to find it.
+				el.style.setProperty('--term-shift', `${Math.ceil(shift)}px`)
 			})
 		}
 		term.onWriteParsed(follow)
@@ -198,8 +234,6 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 		const rootEl = root.current
 		rootEl?.addEventListener('viewportchange', follow)
 
-		const prev = document.body.style.overflow
-		document.body.style.overflow = 'hidden'
 		return () => {
 			disposed = true
 			ro.disconnect()
@@ -209,7 +243,6 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 			ta?.removeEventListener('blur', onBlur)
 			wsRef.current?.close()
 			term.dispose()
-			document.body.style.overflow = prev
 		}
 	}, [app, attempt])
 
