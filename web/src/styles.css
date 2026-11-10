@@ -2705,6 +2705,31 @@ html.screen-locked body {
 	height: 1px !important;
 	opacity: 0 !important;
 }
+/* Phones: stretch that invisible input over the visible terminal, so press-and-hold
+   lands on a real text field and iOS shows its own Paste bubble. xterm sends the paste
+   to the shell, and still scrolls on drags (its touch handlers sit on the parent). */
+@media (pointer: coarse) {
+	.term-host .xterm .xterm-helpers {
+		left: 0;
+		right: 0;
+	}
+	.term-host .xterm .xterm-helper-textarea {
+		width: 100% !important;
+		height: var(--term-frame, 100%) !important;
+		opacity: 1 !important;
+		color: transparent !important;
+		caret-color: transparent !important;
+		background: transparent !important;
+		border: 0 !important;
+		outline: none !important;
+		resize: none !important;
+		z-index: 6 !important;
+		-webkit-user-select: text !important;
+		user-select: text !important;
+		-webkit-touch-callout: default !important;
+		-webkit-tap-highlight-color: transparent;
+	}
+}
 /* The Terminal "app" icon */
 .terminal-icon {
 	background: linear-gradient(150deg, #34343f, #0c0c10) !important;

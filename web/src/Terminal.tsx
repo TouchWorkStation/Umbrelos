@@ -213,6 +213,7 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 				el.style.transform = shift ? `translateY(${-Math.ceil(shift)}px)` : ''
 				// Keep xterm's hidden input inside the visible area so iOS never scrolls to find it.
 				el.style.setProperty('--term-shift', `${Math.ceil(shift)}px`)
+				el.style.setProperty('--term-frame', `${frame.clientHeight}px`)
 			})
 		}
 		term.onWriteParsed(follow)
