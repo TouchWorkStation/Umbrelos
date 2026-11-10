@@ -383,6 +383,7 @@ function rfbServer(ws, keys) {
 				else return ws.close()
 				if (buf.length < len) return
 				if (type === 4 && buf[1] === 1) keys.push(buf.readUInt32BE(4))
+				if (type === 5) keys.push({mask: buf[1], x: buf.readUInt16BE(2), y: buf.readUInt16BE(4)})
 				if (type === 3 && !sent) {
 					sent = true
 					frame()

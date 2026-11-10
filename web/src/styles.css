@@ -1874,15 +1874,238 @@ h1.title {
 	position: relative;
 	flex: 1;
 	min-height: 0;
+	overflow: hidden;
+	background: #000;
+}
+.console-stage {
+	position: absolute;
+	inset: 0;
+	transform-origin: 0 0;
+	will-change: transform;
+	pointer-events: none;
 }
 .console-canvas {
 	position: absolute;
 	inset: 0;
+}
+.console-touch {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
 	touch-action: none;
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+}
+.console-cursor {
+	position: absolute;
+	left: 0;
+	top: 0;
+	z-index: 3;
+	pointer-events: none;
+	opacity: 0;
+	filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+	transition: opacity 0.2s;
+}
+.console-cursor.hidden {
+	display: none;
+}
+.tap-ripple {
+	position: absolute;
+	z-index: 3;
+	width: 44px;
+	height: 44px;
+	margin: -22px 0 0 -22px;
+	border-radius: 50%;
+	border: 2px solid rgba(255, 255, 255, 0.9);
+	background: rgba(255, 255, 255, 0.18);
+	pointer-events: none;
+	animation: ripple 0.45s var(--ease) forwards;
+}
+.tap-ripple.right {
+	border-color: var(--accent-text);
+	background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+@keyframes ripple {
+	from {
+		transform: scale(0.4);
+		opacity: 1;
+	}
+	to {
+		transform: scale(1.3);
+		opacity: 0;
+	}
+}
+.console-float {
+	position: absolute;
+	bottom: 14px;
+	z-index: 4;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 4px;
+	border-radius: 999px;
+	background: rgba(22, 22, 26, 0.72);
+	backdrop-filter: blur(18px) saturate(1.6);
+	-webkit-backdrop-filter: blur(18px) saturate(1.6);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.console-float.right {
+	right: 14px;
+}
+.console-float.left {
+	left: 14px;
+}
+.console-float button {
+	min-width: 40px;
+	height: 40px;
+	padding: 0 6px;
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	color: #fff;
+	display: grid;
+	place-items: center;
+	font: 650 13px var(--sans);
+	font-variant-numeric: tabular-nums;
+	touch-action: none;
+}
+.console-float button:active:not(:disabled) {
+	background: rgba(255, 255, 255, 0.16);
+}
+.console-float button:disabled {
+	opacity: 0.35;
+}
+.console-float .pct {
+	min-width: 54px;
+}
+.mouse-buttons button {
+	width: 48px;
+	font-size: 14px;
+	font-weight: 700;
+}
+.mouse-buttons button + button {
+	border-left: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 0 999px 999px 0;
+}
+.mouse-buttons button:first-child {
+	border-radius: 999px 0 0 999px;
+}
+.mode-switch {
+	position: relative;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	padding: 3px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.09);
+}
+.mode-switch .mode-thumb {
+	position: absolute;
+	top: 3px;
+	bottom: 3px;
+	left: 3px;
+	width: calc(50% - 3px);
+	border-radius: 999px;
+	background: var(--accent);
+	box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 45%, transparent);
+	transition: transform 0.35s var(--spring);
+}
+.mode-switch button {
+	position: relative;
+	z-index: 1;
+	width: 44px;
+	height: 38px;
+	border: 0;
+	background: none;
+	color: rgba(255, 255, 255, 0.6);
+	display: grid;
+	place-items: center;
+	transition: color 0.2s;
+}
+.mode-switch button[aria-checked='true'] {
+	color: var(--on-accent);
+}
+.console-dock {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 0 calc(var(--safe-b) + 8px) 10px;
+	background: #111114;
+	border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.kbd-btn {
+	flex: none;
+	width: 52px;
+	height: 44px;
+	border: 0;
+	border-radius: 14px;
+	display: grid;
+	place-items: center;
+	color: var(--on-accent);
+	background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 85%, #fff), var(--accent));
+	box-shadow:
+		0 6px 16px color-mix(in srgb, var(--accent) 40%, transparent),
+		inset 0 1px 0 rgba(255, 255, 255, 0.25);
+	transition:
+		transform 0.15s var(--ease),
+		filter 0.2s;
+}
+.kbd-btn:active:not(:disabled) {
+	transform: scale(0.93);
+}
+.kbd-btn.on {
+	filter: brightness(1.12);
+	box-shadow:
+		0 0 0 2px #111114,
+		0 0 0 4px var(--accent-text);
+}
+.kbd-btn:disabled {
+	opacity: 0.4;
+}
+.console-keys {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	gap: 6px;
+	overflow-x: auto;
+	scrollbar-width: none;
+	padding-right: 10px;
+	-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 18px), transparent);
+	mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 18px), transparent);
+	padding-left: 4px;
+}
+.console-keys::-webkit-scrollbar {
+	display: none;
+}
+.console-keys button {
+	flex: none;
+	min-width: 46px;
+	height: 44px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 12px;
+	background: rgba(255, 255, 255, 0.09);
+	box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35);
+	color: #fff;
+	font: 600 13px var(--mono);
+}
+.console-keys button:active:not(:disabled) {
+	background: rgba(255, 255, 255, 0.2);
+	transform: translateY(1px);
+	box-shadow: none;
+}
+.console-keys button.on {
+	background: var(--accent);
+	color: var(--on-accent);
+}
+.console-keys button.wide {
+	padding: 0 14px;
 }
 .console-overlay {
 	position: absolute;
 	inset: 0;
+	z-index: 5;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -1898,36 +2121,6 @@ h1.title {
 .console-overlay b {
 	color: #fff;
 	font-size: 17px;
-}
-.console-keys {
-	display: flex;
-	gap: 6px;
-	overflow-x: auto;
-	scrollbar-width: none;
-	padding: 8px 12px calc(var(--safe-b) + 8px);
-	background: #111114;
-	border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-.console-keys::-webkit-scrollbar {
-	display: none;
-}
-.console-keys button {
-	flex: none;
-	min-width: 48px;
-	height: 44px;
-	padding: 0 12px;
-	border: 0;
-	border-radius: 11px;
-	background: rgba(255, 255, 255, 0.09);
-	color: #fff;
-	font: 600 13px var(--mono);
-}
-.console-keys button:active:not(:disabled) {
-	background: rgba(255, 255, 255, 0.2);
-}
-.console-keys button.on {
-	background: var(--accent);
-	color: var(--on-accent);
 }
 /* Off-screen but focusable, so the phone keyboard can type into the machine. */
 .console-input {

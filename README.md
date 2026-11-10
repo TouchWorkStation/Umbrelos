@@ -65,7 +65,19 @@ curl -fsSL https://raw.githubusercontent.com/TouchWorkStation/Umbrelos/main/inst
 
 ## VM console
 
-Machines > a running machine > **Open console** gives you the VM's screen full-screen on your phone: tap to click, drag to drag, long-press or two-finger tap to right-click, and drag with two fingers to scroll. The keyboard button opens the phone keyboard, and a key row adds esc, tab, ctrl, alt, arrows, super and ctrl+alt+del.
+Machines > a running machine > **Open console** shows the VM's screen full-screen. Input works like RustDesk, Microsoft Remote Desktop and RealVNC on phones. There are two modes, switched at the top right:
+
+| | Touch mode (default) | Mouse mode (trackpad) |
+| --- | --- | --- |
+| Click | tap where you want | tap (clicks at the cursor) |
+| Right-click | long-press, or two-finger tap | two-finger tap, or the **R** button |
+| Drag | long-press, then drag | double-tap and hold, then drag (or hold **L**) |
+| Move the pointer | — | drag one finger; the cursor follows with acceleration |
+| Scroll | two-finger swipe | two-finger swipe |
+| Zoom | pinch, or − / + (tap the % to fit) | same |
+| Move around while zoomed | one-finger drag | the view follows the cursor |
+
+The **keyboard** button at the bottom left opens the phone keyboard. Next to it, a key row has esc, tab, sticky ctrl/alt/shift, super, arrows, enter, backspace and ctrl+alt+del. A desktop mouse and trackpad also work (ctrl+scroll zooms).
 
 umbreld only gives console tickets to browser sessions, not to the native sessions used for everything else. So at sign-in the Touch server also opens one browser-style session and keeps it server-side, used only to fetch a 30-second, single-use ticket each time a console opens. The VNC stream is then bridged phone <-> Touch server <-> umbreld. The bridge refuses connections from other sites and from signed-out phones.
 
