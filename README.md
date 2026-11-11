@@ -123,7 +123,13 @@ Opening an app then hands the window over to `forgejo-touch.example.com` with a 
 Files is in the dock and works through umbreld's own file API, so it sees what umbrelOS's Files app sees: Home, App data, external drives, network shares and Trash.
 
 - **Browse**: places, recents, favorites, storage left, a list or grid view with photo thumbnails, sort by name, date or size, and search across all files.
-- **Open**: tap a file to preview it (photos full screen, video, audio, PDF, text). From there you can share it to other phone apps, save it to the phone, rename, move, copy, favorite or trash it.
+- **Open**: tap a file to open it in a full-window viewer. Swipe (or use ← →) to step through the folder; the ⋯ button has share, save to phone, rename, move, copy, favorite and trash.
+  - Photos with pinch and double-tap zoom (HEIC, TIFF and RAW show through umbrelOS's own preview renditions), video and music.
+  - PDFs on every page with zoom, rendered by pdf.js so they look the same on iPhone, Android and desktop.
+  - Word (.docx), Excel (.xlsx, with sheet tabs) and PowerPoint (.pptx) documents, Keynote, Pages and Numbers previews.
+  - Text and code with line numbers, and Markdown rendered or as source. **Edit** text, Markdown and CSV files and **Save** them in place.
+  - CSV and TSV as a spreadsheet; zip archives list their contents and **Extract** next to the archive (also .tar, .7z and .rar).
+  - Fonts show a type specimen; anything else gets a card with Download.
 - **Select**: long-press to select several items, then save them as a zip, move, copy or trash them.
 - **Upload**: the Upload button (also on the Files start page, into Home) sends photos or files with progress; on a computer, **Upload folder** sends a whole folder with its subfolders, and you can drag files or folders straight onto the Files window. Name clashes keep both copies. Up to three files upload at once.
 - **Download**: every file and folder has a download button (folders arrive as a zip); select several to download them together.
@@ -131,7 +137,7 @@ Files is in the dock and works through umbreld's own file API, so it sees what u
 - **Share on your network**: any folder can be shared over SMB. The sheet shows the `smb://` and Windows addresses, the username and (on tap) the password, and each one copies with a tap.
 - **Trash**: restore, delete forever, or empty Trash (each asks first).
 
-Downloads, previews and uploads stream through the Touch server using your existing umbrelOS session; the phone never holds an Umbrel token. Previews are served with a locked-down sandbox CSP so an uploaded HTML or SVG file can't run scripts.
+Downloads, previews and uploads stream through the Touch server using your existing umbrelOS session; the phone never holds an Umbrel token. Previews are served with a locked-down sandbox CSP so an uploaded HTML or SVG file can't run scripts. Documents are parsed in the browser and their HTML is sanitized; HTML files are shown as source, never rendered. Older binary Office files (.doc, .xls, .ppt) aren't supported, and Office documents are read-only for now.
 
 ## Storage
 
@@ -185,10 +191,10 @@ The procedure names and data shapes come from getumbrel/umbrel at the umbrelOS 2
 ## Not yet
 
 - A dedicated Photos timeline (photos browse fine in Files).
-- Archive extract/compress, and connecting new network shares from other machines (use the umbrelOS dashboard).
+- Compressing into archives, editing Office documents and PDFs, and connecting new network shares from other machines (use the umbrelOS dashboard).
 - VM audio.
 - Settings that change the system (users, Wi-Fi, backups). These are deliberately left out of the allowlist for now.
 
 ## License
 
-UmbrelOS Touch's own code is MIT. It contains no umbrelOS source code. It talks to umbrelOS (PolyForm Noncommercial 1.0.0) over its API. Not affiliated with Umbrel.
+UmbrelOS Touch's own code is MIT. It contains no umbrelOS source code. The file viewer uses pdf.js (Apache-2.0), mammoth (BSD-2-Clause), JSZip (MIT), marked (MIT) and DOMPurify (Apache-2.0). It talks to umbrelOS (PolyForm Noncommercial 1.0.0) over its API. Not affiliated with Umbrel.

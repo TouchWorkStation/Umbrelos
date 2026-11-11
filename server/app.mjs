@@ -19,7 +19,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.12.1'
+export const VERSION = '0.13.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -119,6 +119,8 @@ export const ALLOWED = {
 	'files.sharePassword': 'query',
 	'files.externalDevices': 'query',
 	'files.unmountExternalDevice': 'mutation',
+	'files.getThumbnail': 'mutation',
+	'files.unarchive': 'mutation',
 	// Storage: the same calls umbrelOS's Storage Manager makes. hardware.raid.setup is
 	// deliberately absent: umbreld marks it dev-only, and on a running Umbrel it writes a RAID
 	// config the next boot mounts as the data drive, i.e. an empty pool in place of your data.
@@ -133,7 +135,7 @@ export const ALLOWED = {
 }
 
 // Long-running mutations: umbreld answers when the operation finishes.
-const SLOW = new Set(['files.copy', 'files.move', 'files.delete', 'files.emptyTrash', 'files.search', 'files.list', 'apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname', 'hardware.internalStorage.getDevices', 'hardware.raid.addDevice', 'hardware.raid.addMirror', 'hardware.raid.addAccelerator', 'hardware.raid.replaceDevice', 'hardware.raid.transitionToFailsafeRaidz'])
+const SLOW = new Set(['files.copy', 'files.unarchive', 'files.getThumbnail', 'files.move', 'files.delete', 'files.emptyTrash', 'files.search', 'files.list', 'apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname', 'hardware.internalStorage.getDevices', 'hardware.raid.addDevice', 'hardware.raid.addMirror', 'hardware.raid.addAccelerator', 'hardware.raid.replaceDevice', 'hardware.raid.transitionToFailsafeRaidz'])
 
 function parseCookies(header = '') {
 	const out = {}
@@ -662,7 +664,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 			for (const p of [req.query.path].flat()) if (typeof p === 'string') url.searchParams.append('path', p)
 			url.searchParams.set('token', token)
 			const upstream = await fetchImpl(url, {
-				headers: {cookie: auth.cookie, ...(req.headers.range ? {range: req.headers.range} : {})},
+				headers: {cookie: auth.cookie, ...(req.headers.range ? {range: req.headers.range} : {}), ...(kind === 'view' && typeof req.headers.accept === 'string' ? {accept: req.headers.accept.slice(0, 300)} : {})},
 				signal: AbortSignal.timeout(6 * 60 * 60 * 1000),
 			})
 			if (upstream.status === 401) urlTokens.delete(req.sid)

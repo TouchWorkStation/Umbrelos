@@ -4,7 +4,7 @@
 // Umbrel. It is never shipped or used by the app itself.
 
 import http from 'node:http'
-import {readFile} from 'node:fs/promises'
+import {readFile, readdir} from 'node:fs/promises'
 import {randomBytes} from 'node:crypto'
 import {WebSocketServer} from 'ws'
 
@@ -48,6 +48,13 @@ export async function startFakeUmbreld({
 		['/Trash', {type: 'directory'}],
 		['/Trash/old-notes.txt', {type: 'text/plain', data: Buffer.from('old')}],
 	])
+	// Optional real sample files (FAKE_SAMPLES_DIR) for exercising the file viewer.
+	const MIME = {pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', csv: 'text/csv', md: 'text/markdown', json: 'application/json', txt: 'text/plain', py: 'text/x-python', zip: 'application/zip', mp3: 'audio/mpeg', mp4: 'video/mp4', jpg: 'image/jpeg', png: 'image/png', svg: 'image/svg+xml', ttf: 'font/ttf', key: 'application/vnd.apple.keynote', heic: 'image/heic', iso: 'application/x-iso9660-image', gz: 'application/gzip'}
+	const typeFor = (name) => MIME[name.split('.').pop().toLowerCase()] ?? 'application/octet-stream'
+	if (process.env.FAKE_SAMPLES_DIR) {
+		fsTree.set('/Home/Samples', {type: 'directory'})
+		for (const name of await readdir(process.env.FAKE_SAMPLES_DIR)) fsTree.set(`/Home/Samples/${name}`, {type: typeFor(name), data: await readFile(`${process.env.FAKE_SAMPLES_DIR}/${name}`)})
+	}
 	for (const [, v] of fsTree) v.modified ??= now - Math.floor(Math.random() * 30 * 864e5)
 	const sizeOf = (v) => v.data?.length ?? v.size ?? (v.wallpaper ? 250_000 : 0)
 	const parentOf = (p) => p.slice(0, p.lastIndexOf('/')) || '/'
@@ -63,6 +70,7 @@ export async function startFakeUmbreld({
 			...(dir ? {} : {size: sizeOf(v)}),
 			modified: v.modified,
 			operations: inTrash ? ['restore', 'delete'] : ['copy', 'move', 'rename', 'trash', 'favorite', 'writable', ...(dir ? ['share'] : [])],
+			...(/zip|gzip|x-tar|7z|rar/.test(v.type) && !inTrash ? {operations: ['copy', 'move', 'rename', 'trash', 'favorite', 'unarchive']} : {}),
 			...(v.type.startsWith('image/') ? {thumbnail: `${baseName(path).replace(/\W/g, '')}.webp`} : {}),
 		}
 	}
@@ -377,6 +385,18 @@ export async function startFakeUmbreld({
 			fsTree.set(path, {type: 'directory', modified: Date.now()})
 			return path
 		})},
+		'files.unarchive': {kind: 'mutation', run: fsOp(({path}) => {
+			if (!fsTree.has(path)) throw ['NOT_FOUND', '[does-not-exist]']
+			const to = uniqueIn(parentOf(path), baseName(path).replace(/\.(zip|tar\.gz|tgz|tar|7z|rar)$/i, ''))
+			fsTree.set(to, {type: 'directory', modified: Date.now()})
+			fsTree.set(`${to}/extracted.txt`, {type: 'text/plain', data: Buffer.from('extracted'), modified: Date.now()})
+			return to
+		})},
+		'files.getThumbnail': {kind: 'mutation', run: fsOp(({path}) => {
+			const v = fsTree.get(path)
+			if (!v) throw ['NOT_FOUND', '[does-not-exist]']
+			return `${baseName(path).replace(/\W/g, '')}.webp`
+		})},
 		'files.rename': {kind: 'mutation', run: fsOp(({path, newName}) => {
 			if (!fsTree.has(path)) throw ['NOT_FOUND', '[does-not-exist]']
 			const to = `${parentOf(path)}/${newName}`
@@ -562,9 +582,9 @@ export async function startFakeUmbreld({
 			if (fsTree.get(dir)?.type !== 'directory') return end(404, '{"error":"not found"}')
 			const chunks = []
 			for await (const c of req) chunks.push(c)
-			const target = fsTree.has(path) ? uniqueIn(dir, baseName(path)) : path
-			const name = baseName(target).toLowerCase()
-			const type = name.endsWith('.jpg') || name.endsWith('.jpeg') ? 'image/jpeg' : name.endsWith('.png') ? 'image/png' : name.endsWith('.txt') ? 'text/plain' : 'application/octet-stream'
+			const replace = url.searchParams.get('collision') === 'replace' && fsTree.get(path)?.type !== 'directory'
+			const target = fsTree.has(path) && !replace ? uniqueIn(dir, baseName(path)) : path
+			const type = fsTree.get(target)?.type ?? typeFor(baseName(target))
 			fsTree.set(target, {type, data: Buffer.concat(chunks), modified: Date.now()})
 			return end(200, JSON.stringify({path: target}), {'content-type': 'application/json'})
 		}
@@ -574,12 +594,13 @@ export async function startFakeUmbreld({
 		const v = fsTree.get(paths[0])
 		if (!v) return end(404, '{"error":"not found"}')
 		let data = v.data
+		if (kind === 'thumbnail' && v.type === 'image/heic' && wallpaperDir) data = await readFile(`${wallpaperDir}/9.jpg`).catch(() => null)
 		if (!data && v.wallpaper && wallpaperDir) data = await readFile(`${wallpaperDir}/${v.wallpaper}.jpg`).catch(() => null)
 		if (!data) data = Buffer.alloc(Math.min(sizeOf(v), 1024))
 		if (kind === 'download' && (paths.length > 1 || v.type === 'directory')) {
 			return end(200, Buffer.from('PK fake zip'), {'content-type': 'application/zip', 'content-disposition': `attachment; filename*=UTF-8''umbrel-files.zip`})
 		}
-		const headers = {'content-type': v.type === 'directory' ? 'application/octet-stream' : v.type, 'content-length': String(data.length)}
+		const headers = {'content-type': v.type === 'directory' ? 'application/octet-stream' : kind === 'thumbnail' && v.type === 'image/heic' ? 'image/jpeg' : v.type, 'content-length': String(data.length)}
 		if (kind === 'download') headers['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(baseName(paths[0]))}`
 		return end(200, data, headers)
 	}

@@ -101,7 +101,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.12.1', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.13.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -250,6 +250,23 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		const mv = await touch.req('POST', '/api/rpc/files.move', {input: {path: '/Home/Documents/hello.txt', toDirectory: '/Home/Downloads'}})
 		assert.equal(mv.status, 200)
 		assert.ok(fake.fsTree.has('/Home/Downloads/hello.txt'))
+	})
+
+	test('file viewer: saves edits in place, extracts archives, asks for renditions', async () => {
+		const save = await fetch(`${touch.base}/api/files/upload?path=${encodeURIComponent('/Home/Documents/Notes.txt')}&collision=replace`, {
+			method: 'POST',
+			headers: {cookie: touch.getCookie(), 'x-umbrel-touch': '1', 'content-type': 'application/octet-stream'},
+			body: 'edited in the viewer',
+		})
+		assert.equal(save.status, 200)
+		assert.equal((await save.json()).path, '/Home/Documents/Notes.txt')
+		assert.equal(fake.fsTree.get('/Home/Documents/Notes.txt').data.toString(), 'edited in the viewer')
+		const un = await touch.req('POST', '/api/rpc/files.unarchive', {input: {path: '/Home/backup.zip'}})
+		assert.equal(un.status, 200)
+		assert.ok(fake.fsTree.has('/Home/backup'))
+		const th = await touch.req('POST', '/api/rpc/files.getThumbnail', {input: {path: '/Home/Photos/Lake.jpg', variant: 'preview-1280-webp-v2'}})
+		assert.equal(th.status, 200)
+		assert.equal(typeof th.body.data, 'string')
 	})
 
 	test('non-allowlisted procedures are refused without reaching umbreld', async () => {

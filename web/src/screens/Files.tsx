@@ -23,6 +23,7 @@ import { Icon, type IconName } from "../icons";
 import { Sheet, SheetHeader, bytes, haptic, useConfirm, usePortalRoot, useToast } from "../ui";
 import { SearchField } from "./Apps";
 import { useDesktop } from "../desktop/Desktop";
+import { FileViewer } from "./viewer/FileViewer";
 
 // ---- helpers --------------------------------------------------------------------
 const isDir = (f: FileEntry) => f.type === "directory";
@@ -368,6 +369,8 @@ export function Files({ initialPath }: { initialPath?: string } = {}) {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<FileEntry | null>(null);
+  // The full-window viewer: the files you can step through, and where you started.
+  const [viewing, setViewing] = useState<{ files: FileEntry[]; index: number } | null>(null);
   const [picker, setPicker] = useState<{
     mode: "move" | "copy";
     paths: string[];
@@ -458,7 +461,13 @@ export function Files({ initialPath }: { initialPath?: string } = {}) {
     if (selecting) return toggle(f);
     if (isDir(f)) return go(f.path);
     haptic(6);
-    setOpen(f);
+    if (inTrash || f.path.startsWith("/Trash/")) return setOpen(f);
+    viewFile(f);
+  };
+  const viewFile = (f: FileEntry) => {
+    const files = items.filter((x) => !isDir(x));
+    const index = files.findIndex((x) => x.path === f.path);
+    setViewing(index < 0 ? { files: [f], index: 0 } : { files, index });
   };
 
   const places: Place[] = [
@@ -1159,9 +1168,24 @@ export function Files({ initialPath }: { initialPath?: string } = {}) {
       )}
 
 
+      {viewing && (
+        <FileViewer
+          files={viewing.files}
+          index={viewing.index}
+          onClose={() => setViewing(null)}
+          onInfo={(f) => setOpen(f)}
+          onDownload={(f) => download([f.path])}
+          onChanged={() => {
+            qc.invalidateQueries({ queryKey: ["files.list"] });
+            qc.invalidateQueries({ queryKey: ["files.recents"] });
+          }}
+        />
+      )}
+
       {open && (
         <ItemSheet
           f={open}
+          onView={viewing ? undefined : () => (setOpen(null), viewFile(open))}
           inTrash={inTrash || open.path.startsWith("/Trash/")}
           favorite={favSet.has(open.path)}
           shared={shareMap.get(open.path)}
@@ -1297,6 +1321,7 @@ function ItemSheet(p: {
   shared?: SmbShare;
   onClose: () => void;
   onOpenFolder: () => void;
+  onView?: () => void;
   onDownload: () => void;
   onRename: () => void;
   onMove: () => void;
@@ -1432,6 +1457,14 @@ function ItemSheet(p: {
         onClose={p.onClose}
       />
       {!p.inTrash && !isDir(f) && <Preview f={f} kind={k} />}
+      {!isDir(f) && !p.inTrash && p.onView && (
+        <div className="primary-row">
+          <button className="btn primary" onClick={p.onView}>
+            <Icon name="eye" size={20} />
+            Open
+          </button>
+        </div>
+      )}
       {isDir(f) && !p.inTrash && (
         <div className="primary-row">
           <button className="btn primary" onClick={p.onOpenFolder}>

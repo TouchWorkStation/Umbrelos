@@ -1,5 +1,11 @@
 // Tabler icons: the same open-source icon family umbrelOS itself uses.
 import {
+	IconPresentation,
+	IconTypography,
+	IconEye,
+	IconDeviceFloppy,
+	IconPackageExport,
+	IconTextWrap,
 	IconActivity,
 	IconAppWindow,
 	IconMaximize,
@@ -251,6 +257,12 @@ const icons = {
 	window: IconAppWindow,
 	fullscreen: IconMaximize,
 	'fullscreen-exit': IconMinimize,
+	slides: IconPresentation,
+	font: IconTypography,
+	eye: IconEye,
+	save: IconDeviceFloppy,
+	extract: IconPackageExport,
+	wrap: IconTextWrap,
 } satisfies Record<string, TablerIcon>
 
 export type IconName = keyof typeof icons
