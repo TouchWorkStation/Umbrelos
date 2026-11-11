@@ -18,7 +18,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.11.1'
+export const VERSION = '0.11.2'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -723,6 +723,79 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 			res.json({state: r.status === 200 ? 'ok' : r.status === 401 ? 'signin' : r.status === 403 ? 'not-shared' : 'unknown'})
 		} catch {
 			res.json({state: 'unknown'})
+		}
+	})
+
+	// Desktop: can each app be shown inside a window? Many apps (Forgejo, Nextcloud, Home
+	// Assistant…) forbid being embedded in another site (X-Frame-Options / CSP frame-ancestors),
+	// which browsers show as "refused to connect". We load each app's start page once, the way
+	// the browser would (through umbrelOS's app gateway, with the browser's own app session,
+	// which the gateway strips before the app sees it), and read only those headers.
+	//   window: can be shown in a window · tab: must open in a browser tab
+	//   signin: umbrelOS wants this browser to sign in first · unknown: couldn't tell
+	const appFrameCache = new Map() // `${appId}:${signedIn}` -> {verdict, at}
+	async function frameVerdict(app, umbrelHost, cookieHeader) {
+		if (!app?.port) return 'unknown'
+		if (app.requiresHttps) return 'tab'
+		const origin = `http://${umbrelHost.includes(':') ? `[${umbrelHost}]` : umbrelHost}:${app.port}`
+		let url = new URL(app.path || '/', origin)
+		for (let hop = 0; hop < 5; hop++) {
+			let r
+			try {
+				r = await fetch(url, {
+					headers: {accept: 'text/html', ...(cookieHeader ? {cookie: cookieHeader} : {})},
+					redirect: 'manual',
+					signal: AbortSignal.timeout(6000),
+				})
+			} catch {
+				return 'unknown'
+			}
+			r.body?.cancel().catch(() => {})
+			if (r.status >= 300 && r.status < 400 && r.headers.get('location')) {
+				const next = new URL(r.headers.get('location'), url)
+				// Sent elsewhere (umbrelOS's sign-in on port 2000, or an old login page): sign in first.
+				if (next.origin !== url.origin || next.pathname.startsWith('/app-auth')) return 'signin'
+				url = next
+				continue
+			}
+			const xfo = r.headers.get('x-frame-options')
+			if (xfo && /deny|sameorigin|allow-from/i.test(xfo)) return 'tab'
+			const fa = /frame-ancestors([^;]*)/i.exec(r.headers.get('content-security-policy') ?? '')
+			if (fa && !/(^|\s)\*(\s|$)/.test(fa[1])) return 'tab'
+			return r.status >= 500 ? 'unknown' : 'window'
+		}
+		return 'unknown'
+	}
+	api.get('/app-frame', async (req, res) => {
+		res.set('Cache-Control', 'no-store')
+		try {
+			const ids = String(req.query.apps ?? '')
+				.split(',')
+				.filter((id) => /^[a-zA-Z0-9-]{1,100}$/.test(id))
+				.slice(0, 60)
+			const apps = await authedCall(req, 'apps.list', 'query')
+			const cookies = parseCookies(req.headers.cookie)
+			// Only umbrelOS's own app-session cookies are sent (current and older umbrelOS).
+			const cookieHeader = ['UMBREL_APP_SESSION', 'UMBREL_PROXY_TOKEN']
+				.filter((n) => typeof cookies[n] === 'string' && cookies[n].length < 4096)
+				.map((n) => `${n}=${encodeURIComponent(cookies[n])}`)
+				.join('; ')
+			const umbrelHost = new URL(getClient().baseUrl).hostname
+			const results = {}
+			await Promise.all(
+				ids.map(async (id) => {
+					const app = apps.find((a) => a.id === id)
+					const key = `${id}:${app?.port}:${cookieHeader ? 1 : 0}`
+					const hit = appFrameCache.get(key)
+					if (hit && Date.now() - hit.at < 10 * 60 * 1000 && hit.verdict !== 'signin') return void (results[id] = hit.verdict)
+					const verdict = await frameVerdict(app, umbrelHost, cookieHeader)
+					if (verdict === 'window' || verdict === 'tab') appFrameCache.set(key, {verdict, at: Date.now()})
+					results[id] = verdict
+				}),
+			)
+			res.json({results})
+		} catch (error) {
+			sendError(res, error)
 		}
 	})
 

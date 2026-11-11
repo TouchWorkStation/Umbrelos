@@ -43,6 +43,8 @@ export type DeskConfig = {
 	dock: {position: DockPos; size: DockSize; floating: boolean; autohide: boolean; showRunning: boolean; items: string[]}
 	icons: DeskIcon[]
 	showIcons: boolean
+	// 'auto': a window when the app allows being shown inside one, otherwise a browser tab
+	appsOpenIn: 'auto' | 'tab'
 }
 
 export const SYSTEM_DOCK = ['files', 'apps', 'store', 'terminal', 'machines', 'system', 'settings'] as const
@@ -75,6 +77,7 @@ export const DEFAULT_CONFIG: DeskConfig = {
 		{key: 'folder:/Trash', col: 0, row: 1},
 	],
 	showIcons: true,
+	appsOpenIn: 'auto',
 }
 
 function clean(raw: unknown): DeskConfig {
@@ -106,6 +109,7 @@ function clean(raw: unknown): DeskConfig {
 		},
 		icons: Array.isArray(c.icons) ? c.icons.filter((i) => i && typeof i.key === 'string' && Number.isInteger(i.col) && Number.isInteger(i.row)) : d.icons,
 		showIcons: c.showIcons !== false,
+		appsOpenIn: c.appsOpenIn === 'tab' ? 'tab' : 'auto',
 	}
 }
 

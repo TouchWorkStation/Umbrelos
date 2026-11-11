@@ -94,7 +94,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.11.1', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.11.2', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -301,6 +301,21 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.equal((await touch.req('GET', '/api/app-access?app=../../x')).status, 400)
 		const out = await fetch(`${touch.base}/api/app-access?app=nextcloud`, {headers: {cookie: 'UMBREL_APP_SESSION=good-app-session'}})
 		assert.equal(out.status, 401) // needs a Touch session too
+	})
+
+	test('desktop: tells which apps can be shown in a window and which must open in a tab', async () => {
+		const ask = (extra) => touch.req('GET', '/api/app-frame?apps=immich,nextcloud,home-assistant,jellyfin,../x', undefined, {cookie: `${touch.getCookie()}${extra}`})
+		let r = await ask('')
+		assert.equal(r.status, 200)
+		// not signed in to umbrelOS's app gateway yet: every running app redirects to the sign-in
+		assert.equal(r.body.results.immich, 'signin')
+		assert.equal(r.body.results['../x'], undefined)
+		r = await ask('; UMBREL_APP_SESSION=good-app-session')
+		assert.equal(r.body.results.immich, 'window') // follows the app's own redirect, no frame limits
+		assert.equal(r.body.results.nextcloud, 'tab') // X-Frame-Options: SAMEORIGIN
+		assert.equal(r.body.results['home-assistant'], 'tab') // CSP frame-ancestors 'self'
+		const out = await fetch(`${touch.base}/api/app-frame?apps=immich`)
+		assert.equal(out.status, 401)
 	})
 
 	test('wrong HTTP method for a procedure kind is refused', async () => {

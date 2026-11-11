@@ -8,7 +8,7 @@ import {readFile} from 'node:fs/promises'
 import {randomBytes} from 'node:crypto'
 import {WebSocketServer} from 'ws'
 
-export function startFakeUmbreld({
+export async function startFakeUmbreld({
 	port = 0,
 	accessTtlMs = 60 * 60 * 1000,
 	legacy = false,
@@ -122,6 +122,41 @@ export function startFakeUmbreld({
 		{id: 'ubuntu-1', name: 'Ubuntu Desktop', osId: 'ubuntu', cores: 4, memoryGb: 8, diskSizeGb: 64, state: process.env.FAKE_VM_RUNNING ? 'running' : 'stopped', ipAddress: '10.21.0.2'},
 	]
 	let notifications = ['update-available']
+
+	// Each app gets a tiny web server standing in for umbrelOS's app gateway + the app:
+	// no app session -> redirect to the sign-in on port 2000 (like umbreld's gateway);
+	// signed in -> the app, which may forbid embedding the way real apps do.
+	const APP_HEADERS = {
+		nextcloud: {'x-frame-options': 'SAMEORIGIN'}, // like Nextcloud / Forgejo
+		'home-assistant': {'content-security-policy': "frame-ancestors 'self'"},
+		immich: {},
+	}
+	const appServers = []
+	await Promise.all(
+		apps.map(
+			(a) =>
+				new Promise((resolve) => {
+					const srv = http.createServer((req, res) => {
+						const token = /(?:^|;\s*)UMBREL_APP_SESSION=([^;]+)/.exec(req.headers.cookie ?? '')?.[1]
+						if (token !== 'good-app-session') {
+							res.writeHead(302, {location: `http://${req.headers.host?.split(':')[0]}:2000/app-auth?origin=host&app=${a.id}&path=${encodeURIComponent(req.url)}`})
+							return res.end()
+						}
+						if (a.id === 'immich' && req.url === '/') {
+							res.writeHead(302, {location: '/photos'})
+							return res.end()
+						}
+						res.writeHead(200, {'content-type': 'text/html', ...APP_HEADERS[a.id]})
+						res.end(`<!doctype html><title>${a.name}</title><h1>${a.name}</h1>`)
+					})
+					srv.listen(0, '127.0.0.1', () => {
+						a.port = srv.address().port
+						appServers.push(srv)
+						resolve()
+					})
+				}),
+		),
+	)
 
 	const newToken = () => randomBytes(24).toString('base64url')
 	const issueAccess = (sessionId) => {
@@ -581,7 +616,7 @@ export function startFakeUmbreld({
 					devices.clear()
 					tokens.clear()
 				},
-				close: () => new Promise((r) => server.close(r)),
+				close: () => Promise.all([new Promise((r) => server.close(r)), ...appServers.map((x) => new Promise((r) => x.close(r)))]),
 			})
 		})
 	})

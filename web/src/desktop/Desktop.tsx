@@ -4,7 +4,7 @@
 // and an Activities overview. Every window reuses the same screens as the phone layout.
 import {createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react'
 import {createPortal} from 'react-dom'
-import {useQueryClient} from '@tanstack/react-query'
+import {useQuery, useQueryClient} from '@tanstack/react-query'
 
 import {logout, mutate, type Bootstrap, type Machine, type UserApp} from '../api'
 import {AppSheet} from '../AppSheet'
@@ -136,6 +136,22 @@ export function useItems() {
 		[appList, machineList, owner, apps.isSuccess, machines.isSuccess],
 	)
 	return {info, appList, machineList, owner}
+}
+
+// ---- can an app be shown inside a window? --------------------------------------------------------
+export type FrameVerdict = 'window' | 'tab' | 'signin' | 'unknown'
+export function useAppFrame(ids: string[]) {
+	const key = [...ids].sort().join(',')
+	return useQuery({
+		queryKey: ['app-frame', key],
+		queryFn: () =>
+			fetch(`/api/app-frame?apps=${encodeURIComponent(key)}`, {credentials: 'same-origin'})
+				.then((r) => (r.ok ? r.json() : {results: {}}))
+				.then((b) => (b?.results ?? {}) as Record<string, FrameVerdict>),
+		enabled: ids.length > 0,
+		staleTime: 5 * 60 * 1000,
+		refetchOnWindowFocus: true,
+	})
 }
 
 // ---- context: lets screens open things as windows ----------------------------------------------
@@ -301,9 +317,26 @@ export function Desktop({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; 
 		return () => window.clearInterval(t)
 	}, [starting.length, qc])
 
+	// Which apps must open in a browser tab (they refuse to be shown inside a window).
+	const runningAppIds = useMemo(() => appList.filter((a) => a.port && (a.state === 'ready' || a.state === 'running')).map((a) => a.id), [appList])
+	const frames = useAppFrame(runningAppIds)
+	const framesRef = useRef(frames.data)
+	framesRef.current = frames.data
+	const cfgRef = useRef(cfg)
+	cfgRef.current = cfg
+
 	const api = useMemo<DesktopApi>(() => {
 		const launch = (app: UserApp) => {
 			mutate('apps.trackOpen', {appId: app.id}).catch(() => {})
+			const url = appUrl(app, boot.umbrel!.host)
+			const verdict = framesRef.current?.[app.id]
+			if (url && (cfgRef.current.appsOpenIn === 'tab' || app.requiresHttps || verdict === 'tab')) {
+				// Same as the umbrelOS dashboard: the app gets its own browser tab.
+				setOverview(null)
+				setMenu(null)
+				window.open(url, '_blank', 'noopener')
+				return
+			}
 			open('app', {appId: app.id})
 		}
 		const openConsole = (machineId: string) => open('console', {machineId})
@@ -349,7 +382,7 @@ export function Desktop({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; 
 			pin: (key) => setCfg((c) => (c.dock.items.includes(key) ? c : {...c, dock: {...c.dock, items: [...c.dock.items, key]}})),
 			unpin: (key) => setCfg((c) => ({...c, dock: {...c.dock, items: c.dock.items.filter((k) => k !== key)}})),
 		}
-	}, [open, close, appList, machineList, setCfg, toast])
+	}, [open, close, appList, machineList, setCfg, toast, boot.umbrel])
 
 	// Clicking into an app's iframe doesn't reach our handlers; notice the focus moving to it.
 	useEffect(() => {
@@ -1497,7 +1530,7 @@ function WindowFrame({
 			</div>
 			<div className="win-body">
 				<PortalRoot.Provider value={portal}>
-					<InWindow.Provider value={true}>{portal && (win.kind === 'app' ? <AppFrame key={reload} app={app} url={url} /> : children)}</InWindow.Provider>
+					<InWindow.Provider value={true}>{portal && (win.kind === 'app' ? <AppFrame key={reload} app={app} url={url} onClose={() => onClose(win.id)} /> : children)}</InWindow.Provider>
 				</PortalRoot.Provider>
 				<div className="win-portal" ref={setPortal} />
 			</div>
@@ -1517,10 +1550,13 @@ const checkAccess = (appId: string): Promise<Access> =>
 // An Umbrel app in a window. umbrelOS asks each browser to sign in before it opens apps, and its
 // sign-in page refuses to load inside another page, so that one step happens in a normal tab.
 // The session it creates covers all of this browser's apps (7 days); the window then loads.
-function AppFrame({app, url}: {app?: UserApp; url: string | null}) {
+function AppFrame({app, url, onClose}: {app?: UserApp; url: string | null; onClose: () => void}) {
 	const [loaded, setLoaded] = useState(false)
+	const qc = useQueryClient()
 	const [access, setAccess] = useState<Access>('checking')
 	const [waiting, setWaiting] = useState(false)
+	// Once signed in: does this app allow being shown inside a window at all?
+	const frame = useAppFrame(app && access === 'ok' ? [app.id] : [])
 	const appId = app?.id
 	useEffect(() => {
 		if (!appId) return
@@ -1607,6 +1643,38 @@ function AppFrame({app, url}: {app?: UserApp; url: string | null}) {
 							I’ve signed in
 						</button>
 					)}
+				</div>
+			</div>
+		)
+	const verdict = access === 'ok' ? frame.data?.[app.id] : undefined
+	if (access === 'ok' && frame.isLoading)
+		return (
+			<div className="frame-loading">
+				<AppIcon src={app.icon} name={name} size={64} />
+				<span className="spinner" />
+			</div>
+		)
+	if (verdict === 'tab')
+		return (
+			<div className="win-empty app-gate">
+				<AppIcon src={app.icon} name={name} size={64} />
+				<b>{name} opens in a browser tab</b>
+				<span>
+					{name} doesn’t allow itself to be shown inside other pages (one of its own security settings), so it opens in its own tab, just like from the umbrelOS
+					dashboard. From now on it goes straight there.
+				</span>
+				<div className="app-gate-actions">
+					<button
+						className="btn primary"
+						onClick={() => {
+							window.open(url, '_blank', 'noopener')
+							qc.invalidateQueries({queryKey: ['app-frame']})
+							onClose()
+						}}
+					>
+						<Icon name="open" size={17} />
+						Open {name}
+					</button>
 				</div>
 			</div>
 		)

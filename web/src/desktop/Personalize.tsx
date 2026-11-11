@@ -296,6 +296,27 @@ function DesktopSettings({cfg, setCfg}: P) {
 	].filter((k) => !onDesk.has(k))
 	return (
 		<>
+			<Section
+				title="Opening Umbrel apps"
+				note="Some apps (Forgejo, Nextcloud, Home Assistant and others) don’t allow being shown inside another page. Those always open in their own browser tab, like in the umbrelOS dashboard."
+			>
+				<div className="glass group pz-rows">
+					<div className="row static">
+						<span className="main">
+							<b>Open apps in</b>
+						</span>
+						<Segmented<'auto' | 'tab'>
+							label="Open apps in"
+							value={cfg.appsOpenIn}
+							options={[
+								{id: 'auto', label: 'Windows'},
+								{id: 'tab', label: 'Browser tabs'},
+							]}
+							onChange={(v) => setCfg((c) => ({...c, appsOpenIn: v}))}
+						/>
+					</div>
+				</div>
+			</Section>
 			<Section title="Desktop">
 				<div className="glass group pz-rows">
 					<ToggleRow label="Show icons on the desktop" on={cfg.showIcons} onChange={(v) => setCfg((c) => ({...c, showIcons: v}))} />

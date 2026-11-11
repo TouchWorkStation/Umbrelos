@@ -93,7 +93,7 @@ Wallpaper credits and licences: [web/public/wallpapers/CREDITS.md](web/public/wa
 
 **Signing in to apps.** umbrelOS asks each browser to sign in before it opens apps (its sign-in runs on port 2000). That page refuses to be shown inside another page, so when a browser isn't signed in yet, the app window shows a **Sign in** button that opens umbrelOS's sign-in in a new tab. Once you've signed in, the window loads the app by itself, and every app opens in windows for the next 7 days. Touch checks the session with umbrelOS (yes or no only); it never sees your password, and it never stores, logs or returns the session.
 
-A few apps also refuse to be shown inside another page themselves (`X-Frame-Options` or `frame-ancestors`), and apps that need HTTPS with their own certificate open in their own tab; use **Open in a browser tab** in the window's title bar for those. Touch's own security policy allows frames only from your Umbrel's address.
+Many apps (Forgejo, Nextcloud, Home Assistant and others) refuse to be shown inside another page (`X-Frame-Options` or CSP `frame-ancestors`), which a browser shows as "refused to connect". Touch checks each app once by loading its start page through umbrelOS's app gateway with this browser's app session, which the gateway strips before the app sees it, and reads only those headers. Apps that refuse open in their own browser tab, like in the umbrelOS dashboard; the rest open in windows. Apps that need HTTPS with their own certificate also open in a tab. **Desktop & Dock → Desktop icons → Open apps in** can send every app to a browser tab. Touch's own security policy allows frames only from your Umbrel's address.
 
 ## Files
 
