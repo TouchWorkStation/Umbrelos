@@ -5353,3 +5353,7 @@ html:not(.desk-mode) .upload-panel {
 	border-color: color-mix(in srgb, var(--accent-text) 35%, transparent);
 	font-weight: 620;
 }
+/* Files places: an odd one out at the end spans the row. */
+.place:last-child:nth-child(even) {
+	grid-column: 1 / -1;
+}

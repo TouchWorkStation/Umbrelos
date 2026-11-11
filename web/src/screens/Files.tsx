@@ -147,6 +147,8 @@ const PLACE_NAMES: Record<string, string> = {
   "/Backups": "Backups",
   "/Machines": "Machines",
 };
+// Photos synced from your phone or computer live here (a normal folder in Home).
+const PHOTOS = "/Home/Photos";
 const titleOf = (path: string) => PLACE_NAMES[path] ?? baseName(path);
 
 function FileIcon({ f, size = 44 }: { f: FileEntry; size?: number }) {
@@ -377,6 +379,7 @@ export function Files({ initialPath }: { initialPath?: string } = {}) {
   const [shareInfo, setShareInfo] = useState<SmbShare | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   const [dropping, setDropping] = useState(false);
   const dragDepth = useRef(0);
   const refresh = () => qc.invalidateQueries({ queryKey: ["files.list"] });
@@ -460,6 +463,7 @@ export function Files({ initialPath }: { initialPath?: string } = {}) {
 
   const places: Place[] = [
     { path: "/Home", label: "Home", icon: "home", color: "#3b82f6" },
+    { path: PHOTOS, label: "Photos", icon: "image", color: "#ec4899" },
     { path: "::recents", label: "Recents", icon: "history", color: "#f59e0b" },
     { path: "::favorites", label: "Favorites", icon: "star", color: "#eab308" },
     { path: "/Apps", label: "App data", icon: "apps", color: "#8b5cf6" },
@@ -813,6 +817,25 @@ export function Files({ initialPath }: { initialPath?: string } = {}) {
         )}
       />
       <input
+        ref={photoInput}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          const picked = e.target.files ? [...e.target.files] : [];
+          e.target.value = "";
+          if (!picked.length) return;
+          // Sync: upload only what isn't in Photos yet (same name and size).
+          const have = new Set((listing.data?.files ?? []).map((f) => `${f.name}:${f.size}`));
+          const fresh = picked.filter((f) => !have.has(`${f.name}:${f.size}`));
+          const skipped = picked.length - fresh.length;
+          if (!fresh.length) return toast(`All ${picked.length} already synced`);
+          if (skipped) toast(`${fresh.length} new · ${skipped} already synced`);
+          upload(fresh, PHOTOS);
+        }}
+      />
+      <input
         ref={folderInput}
         type="file"
         multiple
@@ -831,7 +854,13 @@ export function Files({ initialPath }: { initialPath?: string } = {}) {
       />
       {canUpload && !q && !selecting && (
         <div className="files-actions">
-          <button className="btn primary" onClick={() => fileInput.current?.click()}>
+          {path === PHOTOS && (
+            <button className="btn primary" onClick={() => photoInput.current?.click()} disabled={listing.isLoading}>
+              <Icon name="restart" size={18} />
+              Sync photos
+            </button>
+          )}
+          <button className={`btn${path === PHOTOS ? "" : " primary"}`} onClick={() => fileInput.current?.click()}>
             <Icon name="upload" size={18} />
             {path === null ? "Upload to Home" : "Upload"}
           </button>
@@ -858,7 +887,13 @@ export function Files({ initialPath }: { initialPath?: string } = {}) {
               <button
                 key={p.path}
                 className="glass place press"
-                onClick={() => go(p.path)}
+                onClick={() =>
+                  p.path === PHOTOS
+                    ? mutate("files.createDirectory", { path: PHOTOS })
+                        .catch(() => {})
+                        .finally(() => go(PHOTOS))
+                    : go(p.path)
+                }
               >
                 <span className="place-ico" style={{ background: p.color }}>
                   <Icon name={p.icon} size={21} />
