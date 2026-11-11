@@ -221,76 +221,120 @@ type Upload = {
   state: "uploading" | "done" | "error";
   error?: string;
 };
+// An upload item: a file plus, for folder uploads, its path inside the dropped/picked folder.
+export type UploadItem = { file: File; rel?: string };
+
+function uploadOne(
+  item: UploadItem,
+  dir: string,
+  onProgress: (loaded: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const target = `${dir}/${item.rel ?? item.file.name}`;
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/files/upload?path=${enc(target)}&collision=keep-both`);
+    xhr.setRequestHeader("x-umbrel-touch", "1");
+    xhr.setRequestHeader("content-type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let message = `Upload failed (${xhr.status})`;
+      try {
+        message = JSON.parse(xhr.responseText)?.error?.message ?? message;
+      } catch {
+        /* not JSON */
+      }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => reject(new Error("Connection lost"));
+    xhr.send(item.file);
+  });
+}
+
 function useUploads(onDone: () => void) {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const toast = useToast();
-  const start = (files: FileList | File[], dir: string) => {
-    const list = [...files];
-    if (!list.length) return;
+  const start = async (input: FileList | File[] | UploadItem[], dir: string) => {
+    const items: UploadItem[] = Array.from(input as ArrayLike<File | UploadItem>).map((x) =>
+      x instanceof File
+        ? { file: x, rel: (x as File & { webkitRelativePath?: string }).webkitRelativePath || undefined }
+        : x,
+    );
+    if (!items.length) return;
     haptic(8);
-    let remaining = list.length;
-    for (const file of list) {
-      const id = Math.random();
-      setUploads((u) => [
-        ...u,
-        {
-          id,
-          name: file.name,
-          loaded: 0,
-          total: file.size,
-          state: "uploading",
-        },
-      ]);
-      const xhr = new XMLHttpRequest();
-      xhr.open(
-        "POST",
-        `/api/files/upload?path=${enc(`${dir}/${file.name}`)}&collision=keep-both`,
-      );
-      xhr.setRequestHeader("x-umbrel-touch", "1");
-      xhr.setRequestHeader("content-type", "application/octet-stream");
-      xhr.upload.onprogress = (e) =>
-        setUploads((u) =>
-          u.map((x) => (x.id === id ? { ...x, loaded: e.loaded } : x)),
-        );
-      const finish = (ok: boolean, error?: string) => {
-        setUploads((u) =>
-          u.map((x) =>
-            x.id === id
-              ? {
-                  ...x,
-                  state: ok ? "done" : "error",
-                  loaded: ok ? x.total : x.loaded,
-                  error,
-                }
-              : x,
-          ),
-        );
-        if (!ok) toast(`${file.name}: ${error}`, true);
-        if (--remaining === 0) {
-          onDone();
-          window.setTimeout(
-            () =>
-              setUploads((u) => (u.some((x) => x.state !== "done") ? u : [])),
-            2500,
-          );
-        }
-      };
-      xhr.onload = () => {
-        let message = `Upload failed (${xhr.status})`;
+    const ids = items.map(() => Math.random());
+    setUploads((u) => [
+      ...u,
+      ...items.map((it, i) => ({
+        id: ids[i],
+        name: it.rel ?? it.file.name,
+        loaded: 0,
+        total: it.file.size,
+        state: "uploading" as const,
+      })),
+    ]);
+    // Folder uploads: make the folders first (parents before children). One that already
+    // exists is fine: files land inside it, and name clashes keep both copies.
+    const dirs = [
+      ...new Set(
+        items.flatMap((it) => {
+          const parts = (it.rel ?? "").split("/").slice(0, -1);
+          return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
+        }),
+      ),
+    ].sort((x, y) => x.split("/").length - y.split("/").length);
+    for (const d of dirs) await mutate("files.createDirectory", { path: `${dir}/${d}` }).catch(() => {});
+    // Three at a time, so a folder of hundreds of files doesn't swamp the connection.
+    let next = 0;
+    let failed = 0;
+    const worker = async () => {
+      while (next < items.length) {
+        const i = next++;
+        const it = items[i];
         try {
-          message = JSON.parse(xhr.responseText)?.error?.message ?? message;
-        } catch {
-          /* not JSON */
+          await uploadOne(it, dir, (loaded) =>
+            setUploads((u) => u.map((x) => (x.id === ids[i] ? { ...x, loaded } : x))),
+          );
+          setUploads((u) => u.map((x) => (x.id === ids[i] ? { ...x, state: "done", loaded: x.total } : x)));
+        } catch (e) {
+          failed++;
+          setUploads((u) => u.map((x) => (x.id === ids[i] ? { ...x, state: "error", error: (e as Error).message } : x)));
+          if (failed <= 3) toast(`${it.rel ?? it.file.name}: ${nice((e as Error).message)}`, true);
         }
-        finish(xhr.status >= 200 && xhr.status < 300, message);
-      };
-      xhr.onerror = () => finish(false, "Connection lost");
-      xhr.send(file);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, items.length) }, worker));
+    onDone();
+    if (failed > 3) toast(`${failed} files didn’t upload`, true);
+    window.setTimeout(() => setUploads((u) => (u.some((x) => x.state !== "done") ? u : [])), 2500);
+  };
+  const clear = () => setUploads((u) => u.filter((x) => x.state === "uploading"));
+  return { uploads, start, clear };
+}
+
+// Files and folders dropped from the computer. Folders are walked so their structure is kept.
+async function droppedItems(dt: DataTransfer): Promise<UploadItem[]> {
+  const entries = [...dt.items]
+    .map((i) => (i.kind === "file" ? (i as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntry | null }).webkitGetAsEntry?.() : null))
+    .filter(Boolean) as FileSystemEntry[];
+  if (!entries.length) return [...dt.files].map((file) => ({ file }));
+  const out: UploadItem[] = [];
+  const walk = async (entry: FileSystemEntry, prefix: string): Promise<void> => {
+    if (entry.isFile) {
+      const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+      out.push({ file, rel: prefix ? `${prefix}/${file.name}` : undefined });
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      for (;;) {
+        const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const child of batch) await walk(child, path);
+      }
     }
   };
-  const clear = () =>
-    setUploads((u) => u.filter((x) => x.state === "uploading"));
-  return { uploads, start, clear };
+  for (const e of entries) await walk(e, "");
+  return out;
 }
 
 // ---- screen -----------------------------------------------------------------------------
@@ -329,10 +373,11 @@ export function Files() {
     kind: "folder" | "rename";
     entry?: FileEntry;
   } | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
   const [shareInfo, setShareInfo] = useState<SmbShare | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const photoInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
+  const [dropping, setDropping] = useState(false);
+  const dragDepth = useRef(0);
   const refresh = () => qc.invalidateQueries({ queryKey: ["files.list"] });
   const { uploads, start: upload, clear: clearUploads } = useUploads(refresh);
 
@@ -388,6 +433,14 @@ export function Files() {
   };
   const inTrash = !!path && (path === "/Trash" || path.startsWith("/Trash/"));
   const selecting = selected.size > 0;
+  // Where uploads go: the folder you're in (if umbrelOS says it's writable), or Home from the start page.
+  const writableHere =
+    !!path && !path.startsWith("::") && !inTrash && listing.data?.operations?.includes("writable") !== false && !listing.error;
+  const uploadDir = path === null ? "/Home" : writableHere ? path : null;
+  const canUpload = !!uploadDir;
+  const finePointer = typeof matchMedia !== "undefined" && matchMedia("(pointer: fine)").matches;
+  // iPhone/iPad Safari can't pick a whole folder; computers can.
+  const canPickFolder = finePointer && "webkitdirectory" in HTMLInputElement.prototype;
   const toggle = (f: FileEntry) => {
     haptic(6);
     setSelected((s) => {
@@ -690,6 +743,20 @@ export function Files() {
           </b>
           <span>{q ? parentOf(f.path) : sub}</span>
         </span>
+        {!selecting && !inTrash && !f.path.startsWith("/Trash/") && (
+          <button
+            className="icon-btn row-dl"
+            style={{ alignSelf: "center" }}
+            aria-label={isDir(f) ? `Download ${f.name} as a zip` : `Download ${f.name}`}
+            title={isDir(f) ? "Download as zip" : "Download"}
+            onClick={(e) => {
+              e.stopPropagation();
+              download([f.path]);
+            }}
+          >
+            <Icon name="download" size={18} />
+          </button>
+        )}
         {!selecting && (
           <button
             className="icon-btn"
@@ -708,26 +775,50 @@ export function Files() {
     );
   };
 
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!canUpload || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current++;
+    setDropping(true);
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    if (!canUpload || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onDragLeave = () => {
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (!dragDepth.current) setDropping(false);
+  };
+  const onDrop = async (e: React.DragEvent) => {
+    if (!canUpload || !uploadDir) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDropping(false);
+    const items = await droppedItems(e.dataTransfer).catch(() => [] as UploadItem[]);
+    if (items.length) upload(items, uploadDir);
+  };
+
   return (
-    <div className="stagger">
+    <div className="stagger files-root" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <input
         ref={fileInput}
         type="file"
         multiple
         hidden
         onChange={(e) => (
-          path && e.target.files && upload(e.target.files, path),
+          uploadDir && e.target.files && upload(e.target.files, uploadDir),
           (e.target.value = "")
         )}
       />
       <input
-        ref={photoInput}
+        ref={folderInput}
         type="file"
-        accept="image/*,video/*"
         multiple
         hidden
+        {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
         onChange={(e) => (
-          path && e.target.files && upload(e.target.files, path),
+          uploadDir && e.target.files && upload(e.target.files, uploadDir),
           (e.target.value = "")
         )}
       />
@@ -737,6 +828,27 @@ export function Files() {
         onChange={setQ}
         placeholder={path === null ? "Search all files" : `Search files`}
       />
+      {canUpload && !q && !selecting && (
+        <div className="files-actions">
+          <button className="btn primary" onClick={() => fileInput.current?.click()}>
+            <Icon name="upload" size={18} />
+            {path === null ? "Upload to Home" : "Upload"}
+          </button>
+          {canPickFolder && (
+            <button className="btn" onClick={() => folderInput.current?.click()}>
+              <Icon name="folder-share" size={18} />
+              Upload folder
+            </button>
+          )}
+          {path !== null && (
+            <button className="btn" onClick={() => setPrompt({ kind: "folder" })}>
+              <Icon name="folder-plus" size={18} />
+              New folder
+            </button>
+          )}
+          {finePointer && <span className="drop-hint">or drop files here</span>}
+        </div>
+      )}
 
       {path === null && !q && (
         <>
@@ -935,23 +1047,15 @@ export function Files() {
 
       {createPortal(
         <>
-          {/* Add button */}
-          {path &&
-            !path.startsWith("::") &&
-            !inTrash &&
-            !selecting &&
-            listing.data?.operations?.includes("writable") !== false && (
-              <button
-                className="fab"
-                aria-label="Add"
-                onClick={() => {
-                  haptic(8);
-                  setAddOpen(true);
-                }}
-              >
-                <Icon name="plus" size={26} stroke={2.4} />
-              </button>
-            )}
+          {dropping && uploadDir && (
+            <div className="drop-zone" aria-hidden="true">
+              <span>
+                <Icon name="upload" size={34} />
+                <b>Drop to upload</b>
+                <small>to {titleOf(uploadDir)}</small>
+              </span>
+            </div>
+          )}
 
           {/* Selection bar */}
           {selecting && (
@@ -981,7 +1085,7 @@ export function Files() {
                 <>
                   <button onClick={() => download([...selected])}>
                     <Icon name="download" size={21} />
-                    Save
+                    Download
                   </button>
                   <button
                     onClick={() =>
@@ -1018,43 +1122,6 @@ export function Files() {
         portalRoot,
       )}
 
-      <Sheet
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        label="Add to this folder"
-      >
-        <SheetHeader
-          title="Add to this folder"
-          subtitle={path ? titleOf(path) : undefined}
-          onClose={() => setAddOpen(false)}
-        />
-        <div
-          className="actions"
-          style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
-        >
-          <button
-            className="action"
-            onClick={() => (setAddOpen(false), photoInput.current?.click())}
-          >
-            <Icon name="image" size={24} />
-            Photos
-          </button>
-          <button
-            className="action"
-            onClick={() => (setAddOpen(false), fileInput.current?.click())}
-          >
-            <Icon name="upload" size={24} />
-            Files
-          </button>
-          <button
-            className="action"
-            onClick={() => (setAddOpen(false), setPrompt({ kind: "folder" }))}
-          >
-            <Icon name="folder-plus" size={24} />
-            New folder
-          </button>
-        </div>
-      </Sheet>
 
       {open && (
         <ItemSheet
@@ -1260,14 +1327,14 @@ function ItemSheet(p: {
     : [
         {
           id: "share-out",
-          label: isDir(f) ? "Save zip" : "Share",
+          label: isDir(f) ? "Download zip" : "Share",
           icon: isDir(f) ? "download" : "share",
           onClick: isDir(f) ? p.onDownload : shareOut,
           show: true,
         },
         {
           id: "download",
-          label: "Save",
+          label: "Download",
           icon: "download",
           onClick: p.onDownload,
           show: !isDir(f),

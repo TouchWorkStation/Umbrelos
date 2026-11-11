@@ -95,7 +95,9 @@ Files is in the dock and works through umbreld's own file API, so it sees what u
 - **Browse**: places, recents, favorites, storage left, a list or grid view with photo thumbnails, sort by name, date or size, and search across all files.
 - **Open**: tap a file to preview it (photos full screen, video, audio, PDF, text). From there you can share it to other phone apps, save it to the phone, rename, move, copy, favorite or trash it.
 - **Select**: long-press to select several items, then save them as a zip, move, copy or trash them.
-- **Add**: the + button uploads photos or files with progress (name clashes keep both) or makes a new folder.
+- **Upload**: the Upload button (also on the Files start page, into Home) sends photos or files with progress; on a computer, **Upload folder** sends a whole folder with its subfolders, and you can drag files or folders straight onto the Files window. Name clashes keep both copies. Up to three files upload at once.
+- **Download**: every file and folder has a download button (folders arrive as a zip); select several to download them together.
+- **New folder** sits next to Upload.
 - **Share on your network**: any folder can be shared over SMB. The sheet shows the `smb://` and Windows addresses, the username and (on tap) the password, and each one copies with a tap.
 - **Trash**: restore, delete forever, or empty Trash (each asks first).
 

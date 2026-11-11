@@ -18,7 +18,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.9.0'
+export const VERSION = '0.9.1'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
