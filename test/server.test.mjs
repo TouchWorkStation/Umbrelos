@@ -10,11 +10,12 @@ import {createApp} from '../server/app.mjs'
 import {createStore} from '../server/store.mjs'
 import {startFakeUmbreld} from './fake-umbreld.mjs'
 
-async function startTouch({umbrelUrl} = {}) {
+async function startTouch({umbrelUrl, appHosts} = {}) {
 	const dir = await mkdtemp(join(tmpdir(), 'touch-'))
 	const store = await createStore(dir)
 	if (umbrelUrl) await store.setConfig({umbrelUrl})
-	const app = createApp({store})
+	if (appHosts) await store.setConfig({appHosts})
+	const app = createApp({store, relayPortBase: 0, relayHost: '127.0.0.1'})
 	const server = await new Promise((r) => {
 		const s = app.listen(0, '127.0.0.1', () => r(s))
 	})
@@ -36,7 +37,7 @@ async function startTouch({umbrelUrl} = {}) {
 		if (set) cookie = set.split(';')[0]
 		return {status: res.status, body: await res.json().catch(() => null), setCookie: set}
 	}
-	return {dir, store, base, req, getCookie: () => cookie, close: () => new Promise((r) => server.close(r))}
+	return {dir, store, base, req, getCookie: () => cookie, close: () => (app.closeRelays(), new Promise((r) => server.close(r)))}
 }
 
 describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
@@ -64,8 +65,8 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		// a loopback Umbrel address is reported as the address the phone used to reach Touch
 		assert.equal(r.body.umbrel.host, '127.0.0.1')
 		assert.equal(r.body.umbrel.url, 'http://127.0.0.1')
-		assert.equal(r.body.accounts[0].name, 'Chris')
-		assert.deepEqual(r.body.accounts[0].wallpaper, {id: '23', brandColorHsl: '24 90% 50%'})
+		// before sign-in nothing identifies the accounts; only the backdrop wallpaper is shared
+		assert.deepEqual(r.body.accounts, [{userId: '', name: '', avatar: null, wallpaper: {id: '23', brandColorHsl: '24 90% 50%'}}])
 		assert.equal(r.body.session, null)
 	})
 
@@ -82,19 +83,25 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 	})
 
 	test('wrong password surfaces umbreld’s message', async () => {
-		const r = await touch.req('POST', '/api/auth/login', {password: 'nope'})
+		// username and password are both required, and a wrong one of either reads the same
+		let r = await touch.req('POST', '/api/auth/login', {password: 'correct horse'})
+		assert.equal(r.status, 400)
+		r = await touch.req('POST', '/api/auth/login', {username: 'chris', password: 'nope'})
 		assert.equal(r.status, 401)
-		assert.equal(r.body.error.message, 'Incorrect password')
+		assert.equal(r.body.error.message, 'Incorrect username or password')
+		r = await touch.req('POST', '/api/auth/login', {username: 'admin', password: 'correct horse'})
+		assert.equal(r.status, 401)
+		assert.equal(r.body.error.message, 'Incorrect username or password')
 	})
 
 	test('native login stores credentials server-side and sets only an opaque cookie', async () => {
-		const r = await touch.req('POST', '/api/auth/login', {password: 'correct horse'}, {'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'})
+		const r = await touch.req('POST', '/api/auth/login', {username: 'Chris', password: 'correct horse'}, {'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'})
 		assert.equal(r.status, 200)
 		assert.equal(r.body.mode, 'native')
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.11.2', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.12.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -303,19 +310,81 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.equal(out.status, 401) // needs a Touch session too
 	})
 
-	test('desktop: tells which apps can be shown in a window and which must open in a tab', async () => {
-		const ask = (extra) => touch.req('GET', '/api/app-frame?apps=immich,nextcloud,home-assistant,jellyfin,../x', undefined, {cookie: `${touch.getCookie()}${extra}`})
-		let r = await ask('')
+	test('desktop: every app opens in a window through a relay, using Touch’s own umbrelOS app session', async () => {
+		const r = await touch.req('GET', '/api/app-frame?apps=immich,nextcloud,home-assistant,../x')
 		assert.equal(r.status, 200)
-		// not signed in to umbrelOS's app gateway yet: every running app redirects to the sign-in
-		assert.equal(r.body.results.immich, 'signin')
-		assert.equal(r.body.results['../x'], undefined)
-		r = await ask('; UMBREL_APP_SESSION=good-app-session')
-		assert.equal(r.body.results.immich, 'window') // follows the app's own redirect, no frame limits
-		assert.equal(r.body.results.nextcloud, 'tab') // X-Frame-Options: SAMEORIGIN
-		assert.equal(r.body.results['home-assistant'], 'tab') // CSP frame-ancestors 'self'
-		const out = await fetch(`${touch.base}/api/app-frame?apps=immich`)
-		assert.equal(out.status, 401)
+		assert.equal(r.body.sso, true) // the sign-in kept umbrelOS's app session server-side
+		assert.deepEqual(r.body.results, {immich: 'window', nextcloud: 'window', 'home-assistant': 'window'})
+		assert.deepEqual(r.body.relay, {immich: true, nextcloud: true, 'home-assistant': true})
+		const open = await touch.req('GET', '/api/app-open?app=nextcloud')
+		assert.equal(open.status, 200)
+		const url = new URL(open.body.url)
+		const via = (path, cookie) => fetch(new URL(path, url), {headers: cookie ? {cookie} : {}, redirect: 'manual'})
+		// only browsers signed in to Touch get through
+		assert.equal((await via('/', 'UMBREL_APP_SESSION=good-app-session')).status, 401)
+		// no umbrelOS app sign-in needed in the browser: Touch supplies its own app session
+		const page = await via('/', touch.getCookie())
+		assert.equal(page.status, 200)
+		assert.match(await page.text(), /Nextcloud/)
+		assert.equal(page.headers.get('x-frame-options'), null)
+		assert.equal(page.headers.get('content-security-policy'), `frame-ancestors 'self' ${touch.base}`)
+		const ha = await touch.req('GET', '/api/app-open?app=home-assistant')
+		const hap = await fetch(ha.body.url, {headers: {cookie: touch.getCookie()}})
+		assert.equal(hap.headers.get('content-security-policy'), `frame-ancestors 'self' ${touch.base}`)
+		// a frameable app's own redirect stays on the relay
+		const im = await touch.req('GET', '/api/app-open?app=immich')
+		const imr = await fetch(im.body.url, {headers: {cookie: touch.getCookie()}, redirect: 'manual'})
+		assert.equal(imr.status, 302)
+		assert.equal(new URL(imr.headers.get('location'), im.body.url).port, new URL(im.body.url).port)
+		// Touch's own cookie never reaches an app
+		assert.ok(fake.appRequests.length > 0)
+		assert.ok(!fake.appRequests.some((c) => c.includes('umbrel_touch_sid')))
+		assert.equal((await via('/__touch/ping.gif')).headers.get('content-type'), 'image/gif')
+		assert.equal((await touch.req('GET', '/api/app-open?app=../x')).status, 400)
+		assert.equal((await fetch(`${touch.base}/api/app-frame?apps=immich`)).status, 401)
+	})
+
+	test('remote access: app subdomains get a one-time hand-over, then a per-app cookie', async () => {
+		const {request} = await import('node:http')
+		const touch2 = await startTouch({umbrelUrl: fake.url, appHosts: '{app}-touch.example.com'})
+		try {
+			await touch2.req('POST', '/api/auth/login', {username: 'Chris', password: 'correct horse'})
+			const u = new URL(touch2.base)
+			const get = (host, path, headers = {}) =>
+				new Promise((resolve, reject) => {
+					const q = request({host: u.hostname, port: u.port, path, headers: {host, ...headers}}, (res) => {
+						let body = ''
+						res.on('data', (c) => (body += c))
+						res.on('end', () => resolve({status: res.statusCode, headers: res.headers, body}))
+					})
+					q.on('error', reject)
+					q.end()
+				})
+			// the Touch page, as reached through the tunnel
+			const open = await get('touch.example.com', '/api/app-open?app=nextcloud', {cookie: touch2.getCookie(), 'x-forwarded-proto': 'https'})
+			const body = JSON.parse(open.body)
+			assert.match(body.url, /^https:\/\/nextcloud-touch\.example\.com\/__touch\/enter\?t=/)
+			const enter = new URL(body.url)
+			// nothing gets through without the hand-over
+			assert.equal((await get('nextcloud-touch.example.com', '/')).status, 401)
+			const handed = await get('nextcloud-touch.example.com', enter.pathname + enter.search, {'x-forwarded-proto': 'https'})
+			assert.equal(handed.status, 302)
+			const cookie = handed.headers['set-cookie'][0]
+			assert.match(cookie, /^__touch_app=[\w-]+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=43200; Secure$/)
+			// the ticket is single use
+			assert.equal((await get('nextcloud-touch.example.com', enter.pathname + enter.search)).status, 401)
+			const page = await get('nextcloud-touch.example.com', '/', {cookie: cookie.split(';')[0]})
+			assert.equal(page.status, 200)
+			assert.match(page.body, /Nextcloud/)
+			assert.equal(page.headers['content-security-policy'], "frame-ancestors 'self' https://touch.example.com")
+			// a per-app cookie doesn't open other apps
+			assert.equal((await get('immich-touch.example.com', '/', {cookie: cookie.split(';')[0]})).status, 401)
+			// Touch's own pages allow framing its app subdomains
+			const csp = (await get('touch.example.com', '/api/bootstrap')).headers['content-security-policy']
+			assert.match(csp, /frame-src [^;]*https:\/\/\*\.example\.com/)
+		} finally {
+			await touch2.close()
+		}
 	})
 
 	test('wrong HTTP method for a procedure kind is refused', async () => {
@@ -358,7 +427,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 	})
 
 	test('logout revokes the umbrelOS session', async () => {
-		await touch.req('POST', '/api/auth/login', {password: 'correct horse'})
+		await touch.req('POST', '/api/auth/login', {username: 'Chris', password: 'correct horse'})
 		const r = await touch.req('POST', '/api/auth/logout')
 		assert.equal(r.status, 200)
 		assert.ok(fake.calls.findLast((c) => c.path === 'user.logout'))
@@ -371,7 +440,7 @@ describe('older umbrelOS without native login', () => {
 		const fake = await startFakeUmbreld({legacy: true})
 		const touch = await startTouch({umbrelUrl: fake.url})
 		try {
-			const r = await touch.req('POST', '/api/auth/login', {password: 'correct horse'})
+			const r = await touch.req('POST', '/api/auth/login', {username: 'Chris', password: 'correct horse'})
 			assert.equal(r.status, 200)
 			assert.equal(r.body.mode, 'legacy')
 			const list = await touch.req('GET', '/api/rpc/apps.list')

@@ -59,7 +59,7 @@ export type Bootstrap = {
 
 export const getBootstrap = () => fetch('/api/bootstrap', {credentials: 'same-origin'}).then((r) => handle<Bootstrap>(r))
 export const setup = (url: string) => post<{ok: true; url: string; version: string}>('/api/setup', {url})
-export const login = (body: {password: string; totpToken?: string; userId?: string}) =>
+export const login = (body: {username: string; password: string; totpToken?: string}) =>
 	post<{ok: true; accountId: string}>('/api/auth/login', body)
 export const logout = () => post('/api/auth/logout')
 

@@ -5323,3 +5323,33 @@ html.desk-mode body {
 	border: 1px solid var(--line);
 	color: var(--fg);
 }
+
+/* ---- phone polish ---- */
+/* Status pills stay readable over bright wallpapers. */
+:root:not([data-theme='latte']) .pill {
+	background: color-mix(in srgb, var(--c) 22%, rgba(10, 10, 14, 0.5));
+}
+/* "Drop files here" only makes sense with a mouse. */
+@media (pointer: coarse), (max-width: 640px) {
+	.drop-hint {
+		display: none;
+	}
+}
+/* Upload progress sits above the dock on phones, clear of the toasts at the top. */
+html:not(.desk-mode) .upload-panel {
+	top: auto;
+	bottom: calc(var(--safe-b) + var(--dock-h) + 22px);
+	animation-name: upload-up;
+}
+@keyframes upload-up {
+	from {
+		transform: translate(-50%, 20px);
+		opacity: 0;
+	}
+}
+/* Scan drives: a solid, readable button. */
+.scan-btn {
+	background: color-mix(in srgb, var(--accent) 22%, rgba(10, 10, 14, 0.45));
+	border-color: color-mix(in srgb, var(--accent-text) 35%, transparent);
+	font-weight: 620;
+}

@@ -132,13 +132,16 @@ export async function startFakeUmbreld({
 		immich: {},
 	}
 	const appServers = []
+	const appSessionTokens = new Set(['good-app-session'])
+	const appRequests = [] // cookie headers the "apps" received
 	await Promise.all(
 		apps.map(
 			(a) =>
 				new Promise((resolve) => {
 					const srv = http.createServer((req, res) => {
+						appRequests.push(req.headers.cookie ?? '')
 						const token = /(?:^|;\s*)UMBREL_APP_SESSION=([^;]+)/.exec(req.headers.cookie ?? '')?.[1]
-						if (token !== 'good-app-session') {
+						if (!appSessionTokens.has(token)) {
 							res.writeHead(302, {location: `http://${req.headers.host?.split(':')[0]}:2000/app-auth?origin=host&app=${a.id}&path=${encodeURIComponent(req.url)}`})
 							return res.end()
 						}
@@ -201,7 +204,9 @@ export async function startFakeUmbreld({
 				tokens.get(accessToken).expiresAt = Infinity
 				const cookie = newToken()
 				browser.set(accessToken, cookie)
-				res.setHeader('set-cookie', [`UMBREL_APP_SESSION=${newToken()}; Path=/; HttpOnly`, `UMBREL_BROWSER_SESSION=${cookie}; Path=/; HttpOnly; SameSite=Lax`])
+				const appTok = newToken()
+				appSessionTokens.add(appTok)
+				res.setHeader('set-cookie', [`UMBREL_APP_SESSION=${appTok}; Path=/; HttpOnly`, `UMBREL_BROWSER_SESSION=${cookie}; Path=/; HttpOnly; SameSite=Lax`])
 				return accessToken
 			},
 		},
@@ -499,7 +504,7 @@ export async function startFakeUmbreld({
 		if (url.pathname === '/app-auth/v1/account/session') {
 			appAuthChecks.push({app: url.searchParams.get('app'), cookie: req.headers.cookie ?? ''})
 			const token = /(?:^|;\s*)UMBREL_APP_SESSION=([^;]+)/.exec(req.headers.cookie ?? '')?.[1]
-			if (token !== 'good-app-session') return send(401, {error: {code: -32001, message: 'Unauthorized'}})
+			if (!appSessionTokens.has(token)) return send(401, {error: {code: -32001, message: 'Unauthorized'}})
 			if (url.searchParams.get('app') === 'private-notes') return send(403, {error: {code: -32003, message: 'This app has not been shared with this account'}})
 			return send(200, {url: 'http://x/umbrel_/api/v1/auth/handoff', params: {r: '/', handoff: 'h'}})
 		}
@@ -609,6 +614,7 @@ export async function startFakeUmbreld({
 				fsTree,
 				apps,
 				appAuthChecks,
+				appRequests,
 				expireAllAccessTokens: () => {
 					for (const v of tokens.values()) v.expiresAt = 0
 				},

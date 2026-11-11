@@ -91,9 +91,29 @@ Wallpaper credits and licences: [web/public/wallpapers/CREDITS.md](web/public/wa
 
 **Settings → Appearance → Layout** picks the layout: *Automatic* uses the desktop on wide screens with a mouse or trackpad (phones and tablets stay on the touch layout), *Desktop* or *Phone* forces one. It's saved per device.
 
-**Signing in to apps.** umbrelOS asks each browser to sign in before it opens apps (its sign-in runs on port 2000). That page refuses to be shown inside another page, so when a browser isn't signed in yet, the app window shows a **Sign in** button that opens umbrelOS's sign-in in a new tab. Once you've signed in, the window loads the app by itself, and every app opens in windows for the next 7 days. Touch checks the session with umbrelOS (yes or no only); it never sees your password, and it never stores, logs or returns the session.
+**Every app opens in a window.** When you sign in, umbrelOS's own login also issues its app session. Touch keeps it on the server, so apps open with no second sign-in. Each app is served through a small Touch relay at its own address: on your network that's a port of its own (7800 and up), and remotely it's a subdomain (see below). The relay:
 
-Many apps (Forgejo, Nextcloud, Home Assistant and others) refuse to be shown inside another page (`X-Frame-Options` or CSP `frame-ancestors`), which a browser shows as "refused to connect". Touch checks each app once by loading its start page through umbrelOS's app gateway with this browser's app session, which the gateway strips before the app sees it, and reads only those headers. Apps that refuse open in their own browser tab, like in the umbrelOS dashboard; the rest open in windows. Apps that need HTTPS with their own certificate also open in a tab. **Desktop & Dock → Desktop icons → Open apps in** can send every app to a browser tab. Touch's own security policy allows frames only from your Umbrel's address.
+- answers only browsers signed in to Touch, and never passes Touch's cookies to the app;
+- still goes through umbrelOS's app gateway, so umbrelOS checks the session (and app sharing) on every request;
+- replaces the app's "nobody may embed me" header (`X-Frame-Options`, CSP `frame-ancestors`) with "only this Touch page may embed me", so Forgejo, Nextcloud, Home Assistant and the rest open in windows while staying protected from other sites;
+- passes WebSockets through.
+
+Sessions from before 0.12 don't have the app session yet; sign out and back in once. Some apps build absolute links to their own port from their settings (for example a `ROOT_URL`); a click on one of those leaves the relay and gets blocked. Use the window's **Open in a browser tab** button for those. Apps that need HTTPS with their own certificate open in a tab. **Desktop & Dock → Desktop icons → Open apps in** can send every app to a browser tab.
+
+### Remote access (Cloudflare tunnel)
+
+Touch's sign-in asks for your umbrelOS **username and password** every time (plus your 2FA code if it's on). A wrong username and a wrong password get the same answer, account names aren't shown before sign-in, and there are at most 10 attempts per 5 minutes per address. umbrelOS's own rate limits and 2FA apply too.
+
+Through a tunnel there's only one address, so app relays can't use their own ports. Give apps their own subdomains instead:
+
+1. Pick a pattern with `{app}` in it, one level below your domain so Cloudflare's free certificate covers it, for example `{app}-touch.example.com`.
+2. Install or update with it (it's saved, so later updates keep it; `TOUCH_APP_HOSTS=off` removes it):
+   ```
+   curl -fsSL https://raw.githubusercontent.com/TouchWorkStation/Umbrelos/main/install.sh | sudo TOUCH_APP_HOSTS='{app}-touch.example.com' bash
+   ```
+3. In the tunnel, route both `touch.example.com` and `*.example.com` (or just the app hostnames you use) to `http://localhost:7780`.
+
+Opening an app then hands the window over to `forgejo-touch.example.com` with a one-time, two-minute ticket. That sets a cookie for that app's address only, valid 12 hours and only while your Touch session lives. Putting Cloudflare Access in front of `touch.example.com` and the app hostnames adds another lock, and works fine with Touch.
 
 ## Files
 

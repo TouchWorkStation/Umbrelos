@@ -140,14 +140,15 @@ export function useItems() {
 
 // ---- can an app be shown inside a window? --------------------------------------------------------
 export type FrameVerdict = 'window' | 'tab' | 'signin' | 'unknown'
+type FrameInfo = {results: Record<string, FrameVerdict>; relay: Record<string, boolean>; sso: boolean; remote: boolean}
 export function useAppFrame(ids: string[]) {
 	const key = [...ids].sort().join(',')
 	return useQuery({
 		queryKey: ['app-frame', key],
 		queryFn: () =>
 			fetch(`/api/app-frame?apps=${encodeURIComponent(key)}`, {credentials: 'same-origin'})
-				.then((r) => (r.ok ? r.json() : {results: {}}))
-				.then((b) => (b?.results ?? {}) as Record<string, FrameVerdict>),
+				.then((r) => (r.ok ? r.json() : {}))
+				.then((b: Partial<FrameInfo>): FrameInfo => ({results: b?.results ?? {}, relay: b?.relay ?? {}, sso: !!b?.sso, remote: !!b?.remote})),
 		enabled: ids.length > 0,
 		staleTime: 5 * 60 * 1000,
 		refetchOnWindowFocus: true,
@@ -329,7 +330,7 @@ export function Desktop({boot, prefs, setPrefs, onSignedOut}: {boot: Bootstrap; 
 		const launch = (app: UserApp) => {
 			mutate('apps.trackOpen', {appId: app.id}).catch(() => {})
 			const url = appUrl(app, boot.umbrel!.host)
-			const verdict = framesRef.current?.[app.id]
+			const verdict = framesRef.current?.results[app.id]
 			if (url && (cfgRef.current.appsOpenIn === 'tab' || app.requiresHttps || verdict === 'tab')) {
 				// Same as the umbrelOS dashboard: the app gets its own browser tab.
 				setOverview(null)
@@ -1547,6 +1548,82 @@ const checkAccess = (appId: string): Promise<Access> =>
 		.then((b) => (['ok', 'signin', 'not-shared'].includes(b?.state) ? b.state : 'unknown'))
 		.catch(() => 'unknown' as const)
 
+// An app through Touch's relay: ask for its address, check it's reachable, then show it.
+function RelayedFrame({app}: {app: UserApp}) {
+	const [src, setSrc] = useState<string | null>(null)
+	const [problem, setProblem] = useState<string | null>(null)
+	const [loaded, setLoaded] = useState(false)
+	const [attempt, setAttempt] = useState(0)
+	const name = app.name ?? app.id
+	useEffect(() => {
+		let alive = true
+		setProblem(null)
+		setSrc(null)
+		fetch(`/api/app-open?app=${encodeURIComponent(app.id)}`, {credentials: 'same-origin'})
+			.then(async (r) => {
+				const b = await r.json().catch(() => null)
+				if (!r.ok) throw new Error(b?.error?.message ?? 'Couldn’t open the app')
+				return b as {url: string; ping: string}
+			})
+			.then(
+				(b) =>
+					new Promise<string>((resolve, reject) => {
+						// Is the relay reachable from this browser (firewall, tunnel routes)?
+						const img = new Image()
+						const t = window.setTimeout(() => reject(new Error('unreachable')), 6000)
+						img.onload = () => (window.clearTimeout(t), resolve(b.url))
+						img.onerror = () => (window.clearTimeout(t), reject(new Error('unreachable')))
+						img.src = `${b.ping}?${Date.now()}`
+					}),
+			)
+			.then((url) => alive && setSrc(url))
+			.catch((e: Error) => alive && setProblem(e.message))
+		return () => {
+			alive = false
+		}
+	}, [app.id, attempt])
+	if (problem)
+		return (
+			<div className="win-empty app-gate">
+				<AppIcon src={app.icon} name={name} size={64} dim />
+				<b>Couldn’t reach {name}</b>
+				<span>
+					{problem === 'unreachable'
+						? location.protocol === 'https:'
+							? 'Touch’s address for this app didn’t answer. Check that your tunnel also routes the app addresses (TOUCH_APP_HOSTS) to Touch.'
+							: 'Touch opens each app on a port of its own (7800 and up). If a firewall runs on this server, allow those ports.'
+						: problem}
+				</span>
+				<div className="app-gate-actions">
+					<button className="btn primary" onClick={() => setAttempt((n) => n + 1)}>
+						<Icon name="restart" size={17} />
+						Try again
+					</button>
+				</div>
+			</div>
+		)
+	return (
+		<>
+			{(!src || !loaded) && (
+				<div className="frame-loading">
+					<AppIcon src={app.icon} name={name} size={64} />
+					<span className="spinner" />
+				</div>
+			)}
+			{src && (
+				<iframe
+					className="app-frame"
+					src={src}
+					title={name}
+					onLoad={() => setLoaded(true)}
+					allow="clipboard-read; clipboard-write; fullscreen; camera; microphone; display-capture"
+					allowFullScreen
+				/>
+			)}
+		</>
+	)
+}
+
 // An Umbrel app in a window. umbrelOS asks each browser to sign in before it opens apps, and its
 // sign-in page refuses to load inside another page, so that one step happens in a normal tab.
 // The session it creates covers all of this browser's apps (7 days); the window then loads.
@@ -1555,17 +1632,19 @@ function AppFrame({app, url, onClose}: {app?: UserApp; url: string | null; onClo
 	const qc = useQueryClient()
 	const [access, setAccess] = useState<Access>('checking')
 	const [waiting, setWaiting] = useState(false)
-	// Once signed in: does this app allow being shown inside a window at all?
-	const frame = useAppFrame(app && access === 'ok' ? [app.id] : [])
+	// How this app opens: through Touch's relay (in a window, signed in by Touch) or directly.
+	const frame = useAppFrame(app ? [app.id] : [])
+	const relayed = !!app && !!frame.data?.relay[app.id]
+	const touchSignsIn = relayed && !!frame.data?.sso
 	const appId = app?.id
 	useEffect(() => {
-		if (!appId) return
+		if (!appId || frame.isLoading || touchSignsIn) return
 		let alive = true
 		checkAccess(appId).then((s) => alive && setAccess(s))
 		return () => {
 			alive = false
 		}
-	}, [appId])
+	}, [appId, frame.isLoading, touchSignsIn])
 	// While the sign-in tab is open: check again every couple of seconds and on returning here.
 	useEffect(() => {
 		if (!waiting || !appId) return
@@ -1610,11 +1689,23 @@ function AppFrame({app, url, onClose}: {app?: UserApp; url: string | null; onClo
 				</button>
 			</div>
 		)
-	if (access === 'checking')
+	if (frame.isLoading || (!touchSignsIn && access === 'checking'))
 		return (
 			<div className="frame-loading">
 				<AppIcon src={app.icon} name={name} size={64} />
 				<span className="spinner" />
+			</div>
+		)
+	if (touchSignsIn) return <RelayedFrame app={app} />
+	if (frame.data?.remote && !relayed)
+		return (
+			<div className="win-empty app-gate">
+				<AppIcon src={app.icon} name={name} size={64} />
+				<b>Apps need their own addresses for remote access</b>
+				<span>
+					You’re using Touch over HTTPS (for example through a Cloudflare tunnel), where the app’s own port can’t be reached. Set TOUCH_APP_HOSTS (see the README) so each app
+					gets an address like {name.toLowerCase().replace(/[^a-z0-9]+/g, '')}-touch.your-domain.
+				</span>
 			</div>
 		)
 	if (access === 'signin')
@@ -1646,14 +1737,8 @@ function AppFrame({app, url, onClose}: {app?: UserApp; url: string | null; onClo
 				</div>
 			</div>
 		)
-	const verdict = access === 'ok' ? frame.data?.[app.id] : undefined
-	if (access === 'ok' && frame.isLoading)
-		return (
-			<div className="frame-loading">
-				<AppIcon src={app.icon} name={name} size={64} />
-				<span className="spinner" />
-			</div>
-		)
+	if (relayed && access === 'ok') return <RelayedFrame app={app} />
+	const verdict = access === 'ok' ? frame.data?.results[app.id] : undefined
 	if (verdict === 'tab')
 		return (
 			<div className="win-empty app-gate">

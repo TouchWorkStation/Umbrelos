@@ -33,6 +33,9 @@ const staticDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 const store = await createStore(dataDir)
 const umbrelArg = flag('umbrel') ?? process.env.UMBREL_URL
 if (umbrelArg) await store.setConfig({umbrelUrl: normalizeUmbrelUrl(umbrelArg)})
+// App addresses for remote access, e.g. "{app}-touch.example.com"; kept until set to "off".
+const appHosts = flag('app-hosts') ?? process.env.TOUCH_APP_HOSTS
+if (appHosts) await store.setConfig({appHosts: appHosts === 'off' ? null : appHosts})
 
 const app = createApp({store, staticDir, secureCookies: process.env.UMBREL_TOUCH_SECURE_COOKIES === '1'})
 const server = app.listen(port, host, () => {

@@ -2,7 +2,7 @@ import {useState, type FormEvent} from 'react'
 
 import {ApiError, login, setup, type Bootstrap} from '../api'
 import {Icon} from '../icons'
-import {haptic, initials} from '../ui'
+import {haptic} from '../ui'
 
 function Logo() {
 	return (
@@ -79,9 +79,8 @@ export function Connect({onDone, unreachable}: {onDone: () => void; unreachable?
 	)
 }
 
-export function Login({boot, userId, setUserId, onDone}: {boot: Bootstrap; userId?: string; setUserId: (id: string) => void; onDone: () => void}) {
-	const accounts = boot.accounts
-	const account = accounts.find((a) => a.userId === userId) ?? accounts[0]
+export function Login({boot, onDone}: {boot: Bootstrap; userId?: string; setUserId?: (id: string) => void; onDone: () => void}) {
+	const [username, setUsername] = useState('')
 	const [password, setPassword] = useState('')
 	const [totp, setTotp] = useState('')
 	const [needTotp, setNeedTotp] = useState(false)
@@ -94,7 +93,7 @@ export function Login({boot, userId, setUserId, onDone}: {boot: Bootstrap; userI
 		setBusy(true)
 		setError('')
 		try {
-			await login({password, userId: account?.userId, ...(needTotp && totp ? {totpToken: totp.replace(/\s/g, '')} : {})})
+			await login({username: username.trim(), password, ...(needTotp && totp ? {totpToken: totp.replace(/\s/g, '')} : {})})
 			haptic(12)
 			onDone()
 		} catch (err) {
@@ -112,22 +111,29 @@ export function Login({boot, userId, setUserId, onDone}: {boot: Bootstrap; userI
 
 	return (
 		<main className="auth center screen">
-			{accounts.length > 1 ? (
-				<div className="accounts" role="radiogroup" aria-label="Account">
-					{accounts.map((a) => (
-						<button type="button" key={a.userId} role="radio" aria-checked={a.userId === account?.userId} className="account" onClick={() => setUserId(a.userId)}>
-							<span className="avatar">{a.avatar ? <img src={a.avatar} alt="" /> : initials(a.name)}</span>
-							{a.name}
-						</button>
-					))}
-				</div>
-			) : (
-				<span className="avatar lg">{account?.avatar ? <img src={account.avatar} alt="" /> : initials(account?.name)}</span>
-			)}
-			<h1>Welcome back{account?.name ? `, ${account.name.split(' ')[0]}` : ''}</h1>
-			<p className="lead">Sign in with your umbrelOS password.</p>
+			<Logo />
+			<h1>Sign in</h1>
+			<p className="lead">Use your umbrelOS username and password.</p>
 			<form onSubmit={submit}>
 				{error && <ErrorBox message={error} k={tries} />}
+				<div className="field">
+					<label htmlFor="username" className="sr-only">
+						Username
+					</label>
+					<input
+						id="username"
+						type="text"
+						placeholder="Username"
+						autoComplete="username"
+						autoCapitalize="off"
+						autoCorrect="off"
+						spellCheck={false}
+						value={username}
+						onChange={(e) => setUsername(e.target.value)}
+						autoFocus
+						required
+					/>
+				</div>
 				<div className="field">
 					<label htmlFor="password" className="sr-only">
 						Password
@@ -139,7 +145,6 @@ export function Login({boot, userId, setUserId, onDone}: {boot: Bootstrap; userI
 						autoComplete="current-password"
 						value={password}
 						onChange={(e) => setPassword(e.target.value)}
-						autoFocus
 						required
 					/>
 				</div>
@@ -162,7 +167,7 @@ export function Login({boot, userId, setUserId, onDone}: {boot: Bootstrap; userI
 						<span className="hint">From your authenticator app.</span>
 					</div>
 				)}
-				<button className="btn primary block" disabled={busy || !password}>
+				<button className="btn primary block" disabled={busy || !username.trim() || !password}>
 					{busy ? <span className="spinner" /> : <Icon name="key" size={20} />}
 					{busy ? 'Signing in…' : 'Sign in'}
 				</button>

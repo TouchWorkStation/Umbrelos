@@ -10,6 +10,9 @@
 #   Options (environment variables):
 #     TOUCH_PORT=7780           port to open in your phone's browser
 #     UMBREL_URL=192.168.1.50   your Umbrel's address (only when NOT installing on the Umbrel)
+#     TOUCH_APP_HOSTS='{app}-touch.example.com'
+#                               app addresses for remote access (Cloudflare tunnel etc.); saved,
+#                               so later re-runs keep it. TOUCH_APP_HOSTS=off removes it.
 #   Remove it again:
 #     curl -fsSL https://raw.githubusercontent.com/TouchWorkStation/Umbrelos/main/install.sh | sudo bash -s -- uninstall
 set -euo pipefail
@@ -56,7 +59,7 @@ docker build --quiet -t "$NAME:latest" "$TMP" >/dev/null
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 # Host networking lets the container reach umbrelOS on 127.0.0.1 and serve the LAN directly.
 docker run -d --name "$NAME" --restart unless-stopped --network host \
-	-e PORT="$PORT" ${URL:+-e UMBREL_URL="$URL"} \
+	-e PORT="$PORT" ${URL:+-e UMBREL_URL="$URL"} ${TOUCH_APP_HOSTS:+-e TOUCH_APP_HOSTS="$TOUCH_APP_HOSTS"} \
 	-v "$NAME-data:/data" "$NAME:latest" >/dev/null
 
 for _ in $(seq 1 20); do
