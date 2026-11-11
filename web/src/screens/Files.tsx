@@ -22,6 +22,7 @@ import { useBootstrap, useDisk, useUser } from "../data";
 import { Icon, type IconName } from "../icons";
 import { Sheet, SheetHeader, bytes, haptic, useConfirm, usePortalRoot, useToast } from "../ui";
 import { SearchField } from "./Apps";
+import { useDesktop } from "../desktop/Desktop";
 
 // ---- helpers --------------------------------------------------------------------
 const isDir = (f: FileEntry) => f.type === "directory";
@@ -346,7 +347,7 @@ type Place = {
   sub?: string;
 };
 
-export function Files() {
+export function Files({ initialPath }: { initialPath?: string } = {}) {
   const portalRoot = usePortalRoot();
   const boot = useBootstrap();
   const user = useUser();
@@ -356,7 +357,7 @@ export function Files() {
   const act = useFileAction();
   const disk = useDisk();
   const [path, setPath] = useState<string | null>(() =>
-    sessionStorage.getItem("umbrel-touch:files-path"),
+    initialPath ?? sessionStorage.getItem("umbrel-touch:files-path"),
   );
   const [sort, setSort] = useState<"name" | "modified" | "size">("name");
   const [grid, setGrid] = useState(
@@ -1272,6 +1273,7 @@ function ItemSheet(p: {
   onRestore: () => void;
   onDelete: () => void;
 }) {
+  const desk = useDesktop();
   const { f } = p;
   const toast = useToast();
   const k = kindOf(f);
@@ -1373,6 +1375,16 @@ function ItemSheet(p: {
           icon: "folder-share",
           onClick: p.onShare,
           show: isDir(f) && (can("share") || !!p.shared),
+        },
+        {
+          id: "desk",
+          label: "Add to desktop",
+          icon: "plus",
+          onClick: () => {
+            desk?.addIcon(`folder:${f.path}`);
+            toast(`${f.name} added to the desktop`);
+          },
+          show: !!desk && isDir(f),
         },
       ];
   const shown = actions.filter((a) => a.show);

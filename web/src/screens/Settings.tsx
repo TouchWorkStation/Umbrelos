@@ -63,7 +63,7 @@ function Row({icon, color, label, value, onClick, href, trailing}: {icon: IconNa
 	)
 }
 
-function Switch({on, onChange, label, disabled}: {on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean}) {
+export function Switch({on, onChange, label, disabled}: {on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean}) {
 	return (
 		<button
 			className="switch"

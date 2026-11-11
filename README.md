@@ -77,9 +77,16 @@ On a computer, UmbrelOS Touch becomes a full desktop in the style of Ubuntu.
 - **Activities** (top left, or tap the Super key): every window side by side, plus search. Type to find any app and press Enter to open it. **Show Applications** (bottom of the dock) shows them all.
 - **Top bar**: the active window's name, the clock with notifications and a calendar, live CPU and memory, and a system menu (Settings, System Monitor, switch to phone layout, sign out, restart, shut down).
 - **Terminal and VM consoles** open as their own windows. Click a console to type into the VM with your real keyboard, shortcuts included. **Ctrl+Alt+T** opens a terminal.
-- Your windows and pinned apps are remembered on this computer.
+- **Desktop icons** for folders, Umbrel apps, machines and system apps. Double-click to open (a stopped machine starts and its console opens once it's running), drag to arrange (they snap to a grid), drag across the desktop to select several, Delete removes the selected shortcuts. Right-click the desktop to add icons, arrange them, change the background or open a terminal; right-click an icon to open, pin, remove or shut a machine down. Green dots show what's running. **Add all running apps and machines** fills the desktop in one click.
+- **Customizable dock**: hover any icon for its name. Drag icons to reorder, drag one onto the desktop to add an icon there, right-click to pin or unpin. Put it on the left, bottom or right; small, medium or large; full-height panel or floating; auto-hide; show or hide open apps that aren't pinned.
+- **Desktop themes and wallpapers**: twelve high-resolution photo wallpapers, twelve themes (Ubuntu, Yosemite, Midnight, Coast, Dusk, Forest, Dolomites, Alpine, Dunes, Orbit, Bloom, Skyline), four panel styles (Yaru, Glass, Graphite, Daylight) and an accent colour taken from the wallpaper or picked yourself. Or use your umbrelOS wallpaper or upload a photo. All of it is in **Desktop & Dock** (right-click the desktop, or the system menu).
+- Your windows, dock, desktop icons and theme are remembered on this computer; your phone's look isn't changed.
 
 ![Activities](docs/desktop-overview.png)
+
+![Desktop themes](docs/desktop-themes.png)
+
+Wallpaper credits and licences: [web/public/wallpapers/CREDITS.md](web/public/wallpapers/CREDITS.md) (CC0, Unsplash and Pexels licences, from the elementary OS collection).
 
 **Settings → Appearance → Layout** picks the layout: *Automatic* uses the desktop on wide screens with a mouse or trackpad (phones and tablets stay on the touch layout), *Desktop* or *Phone* forces one. It's saved per device.
 
