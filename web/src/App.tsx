@@ -14,7 +14,8 @@ import {More} from './screens/More'
 import {Settings} from './screens/Settings'
 import {Store} from './screens/Store'
 import {TerminalScreen} from './Terminal'
-import {Backdrop, Sheet, SheetHeader, haptic, usePrefs, type Prefs} from './ui'
+import {Desktop} from './desktop/Desktop'
+import {Backdrop, Sheet, SheetHeader, haptic, useLayout, usePrefs, type Prefs} from './ui'
 
 type Tab = 'home' | 'apps' | 'files' | 'machines' | 'more' | 'settings' | 'store'
 const TABS: {id: Tab; label: string; icon: IconName; active: IconName}[] = [
@@ -39,6 +40,7 @@ export function App() {
 	const wallpaper = (signedIn ? user.data?.wallpaper : null) ?? account?.wallpaper ?? null
 	const [prefs, setPrefs] = usePrefs(wallpaper?.brandColorHsl, signedIn)
 	const refresh = useCallback(() => qc.invalidateQueries({queryKey: ['bootstrap']}), [qc])
+	const layout = useLayout()
 
 	useEffect(() => {
 		const onOut = () => {
@@ -73,7 +75,7 @@ export function App() {
 	else
 		content = (
 			<BootstrapContext.Provider value={b}>
-				<Shell boot={b} prefs={prefs} setPrefs={setPrefs} onSignedOut={refresh} />
+				{layout.desktop ? <Desktop boot={b} prefs={prefs} setPrefs={setPrefs} onSignedOut={refresh} /> : <Shell boot={b} prefs={prefs} setPrefs={setPrefs} onSignedOut={refresh} />}
 			</BootstrapContext.Provider>
 		)
 

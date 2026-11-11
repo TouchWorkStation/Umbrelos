@@ -26,6 +26,7 @@ A phone-first interface for umbrelOS. It runs beside your Umbrel, signs in the s
 - **System**: live CPU and memory charts, temperature, uptime, a storage breakdown, a ranked "what's using it" list for CPU, memory and storage, umbrelOS update status, and restart or shut down the Umbrel.
 - **Notifications**: a bell with a count, and a sheet where you can dismiss each one.
 - **PWA**: add it to your Home Screen to run full screen.
+- **Desktop mode** on computers: windows, a dock and Activities, like Ubuntu. See [Desktop mode](#desktop-mode).
 
 ## How it connects (and why it's safe)
 
@@ -63,6 +64,26 @@ curl -fsSL https://raw.githubusercontent.com/TouchWorkStation/Umbrelos/main/inst
 ```
 
 **Windows:** install Node.js 20+ and double-click `start-windows.cmd`. **By hand:** `npm ci && npm run build && node server/cli.mjs --umbrel 192.168.1.50`.
+
+## Desktop mode
+
+On a computer, UmbrelOS Touch becomes a full desktop in the style of Ubuntu.
+
+![Desktop](docs/desktop.png)
+
+- **Windows** you can drag, resize from any edge or corner, minimize, maximize (double-click the title bar) and close. Drag a window to the top edge to maximize it, or to the left or right edge to fill half the screen.
+- **Dock** on the left: Files, Apps, App Store, Terminal, Machines, System Monitor and Settings, plus any Umbrel apps you pin or have open. Dots show open windows. Click an app to open or focus it; click it again to minimize. Right-click for New window (Files, Terminal), Pin to dock, Open in a browser tab, or Close.
+- **Umbrel apps open in windows.** Each app window has Reload and Open in a browser tab buttons.
+- **Activities** (top left, or tap the Super key): every window side by side, plus search. Type to find any app and press Enter to open it. **Show Applications** (bottom of the dock) shows them all.
+- **Top bar**: the active window's name, the clock with notifications and a calendar, live CPU and memory, and a system menu (Settings, System Monitor, switch to phone layout, sign out, restart, shut down).
+- **Terminal and VM consoles** open as their own windows. Click a console to type into the VM with your real keyboard, shortcuts included. **Ctrl+Alt+T** opens a terminal.
+- Your windows and pinned apps are remembered on this computer.
+
+![Activities](docs/desktop-overview.png)
+
+**Settings → Appearance → Layout** picks the layout: *Automatic* uses the desktop on wide screens with a mouse or trackpad (phones and tablets stay on the touch layout), *Desktop* or *Phone* forces one. It's saved per device.
+
+Some apps refuse to be shown inside another page (they send `X-Frame-Options` or a `frame-ancestors` policy), and an app may ask you to sign in to umbrelOS first. Both show up as a blank window or an umbrelOS sign-in; use **Open in a browser tab** for those. Touch's own security policy allows frames only from your Umbrel's address.
 
 ## Files
 

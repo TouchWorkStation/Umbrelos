@@ -7,18 +7,18 @@ import {Terminal as XTerm} from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 
 import {Icon} from './icons'
-import {AppIcon, haptic, useToast} from './ui'
+import {AppIcon, haptic, usePortalRoot, useToast} from './ui'
 
 type State = 'connecting' | 'connected' | 'closed' | 'error'
 const BASE_FONT = 13
 const SEQ = {esc: '\x1b', tab: '\t', up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D', home: '\x1b[H', end: '\x1b[F', ctrlC: '\x03'}
 
 // Keep a fixed-position screen inside the area the phone keyboard leaves visible.
-export function useVisualViewport(ref: React.RefObject<HTMLElement>) {
+export function useVisualViewport(ref: React.RefObject<HTMLElement>, enabled = true) {
 	useEffect(() => {
 		const vv = window.visualViewport
 		const el = ref.current
-		if (!vv || !el) return
+		if (!vv || !el || !enabled) return
 		const apply = () => {
 			el.style.top = `${vv.offsetTop}px`
 			el.style.height = `${vv.height}px`
@@ -34,14 +34,15 @@ export function useVisualViewport(ref: React.RefObject<HTMLElement>) {
 			vv.removeEventListener('resize', apply)
 			vv.removeEventListener('scroll', apply)
 		}
-	}, [ref])
+	}, [ref, enabled])
 }
 
 // Make a full-screen overlay behave like its own window on iPhone: freeze the page underneath
 // (iOS ignores overflow:hidden on body and will scroll it to "reveal" a focused input), and
 // stop drags outside the real scroll areas from panning the page while the keyboard is up.
-export function useScreenLock(ref: React.RefObject<HTMLElement>, guardTouch = true) {
+export function useScreenLock(ref: React.RefObject<HTMLElement>, guardTouch = true, enabled = true) {
 	useEffect(() => {
+		if (!enabled) return
 		const html = document.documentElement
 		const b = document.body.style
 		const y = window.scrollY
@@ -67,14 +68,15 @@ export function useScreenLock(ref: React.RefObject<HTMLElement>, guardTouch = tr
 			html.classList.remove('screen-locked')
 			window.scrollTo(0, y)
 		}
-	}, [ref, guardTouch])
+	}, [ref, guardTouch, enabled])
 }
 
 function cssVar(name: string, fallback: string) {
 	return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
 }
 
-export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string; icon?: string}; onClose: () => void}) {
+export function TerminalScreen({app, onClose, embedded}: {app?: {id: string; name?: string; icon?: string}; onClose: () => void; embedded?: boolean}) {
+	const portalRoot = usePortalRoot()
 	const root = useRef<HTMLDivElement>(null)
 	const host = useRef<HTMLDivElement>(null)
 	const termRef = useRef<XTerm>()
@@ -91,8 +93,8 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 	const mods = useRef({ctrl: false, alt: false})
 	mods.current = {ctrl, alt}
 	const toast = useToast()
-	useVisualViewport(root)
-	useScreenLock(root)
+	useVisualViewport(root, !embedded)
+	useScreenLock(root, true, !embedded)
 
 	useEffect(() => {
 		const el = host.current
@@ -310,7 +312,7 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 	]
 
 	return createPortal(
-		<div ref={root} className="console terminal" role="dialog" aria-modal="true" aria-label={`${title} terminal`}>
+		<div ref={root} className={`console terminal${embedded ? ' embedded' : ''}`} role="dialog" aria-modal={!embedded} aria-label={`${title} terminal`}>
 			<header className="console-bar">
 				<button className="round-btn" aria-label="Close terminal" onClick={onClose}>
 					<Icon name="back" size={20} />
@@ -394,6 +396,6 @@ export function TerminalScreen({app, onClose}: {app?: {id: string; name?: string
 				</div>
 			</div>
 		</div>,
-		document.body,
+		portalRoot,
 	)
 }

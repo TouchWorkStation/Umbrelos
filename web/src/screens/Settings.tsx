@@ -1,11 +1,11 @@
 // Full settings, backed by the same umbreld calls the umbrelOS dashboard uses.
-import {useEffect, useState, type CSSProperties, type FormEvent, type ReactNode} from 'react'
+import {useContext, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode} from 'react'
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 
 import {logout, mutate, query, type ActiveSession, type Wallpaper} from '../api'
 import {useBootstrap, useUser} from '../data'
 import {Icon, type IconName} from '../icons'
-import {Segmented, Sheet, SheetHeader, haptic, initials, useConfirm, useToast, wallpaperUrl, type Prefs} from '../ui'
+import {InWindow, Segmented, Sheet, SheetHeader, haptic, initials, setLayoutPref, useConfirm, useLayout, useToast, wallpaperUrl, type LayoutPref, type Prefs} from '../ui'
 import {Appearance} from './More'
 import {StoragePage} from './Storage'
 
@@ -155,6 +155,8 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 	const save = useSave()
 	const qc = useQueryClient()
 	const [sheet, setSheet] = useState<SheetId>(null)
+	const inWindow = useContext(InWindow)
+	const layout = useLayout()
 	const [page, setPage] = useState<'main' | 'appearance' | 'storage'>(() => (sessionStorage.getItem('umbrel-touch:settings-page') as 'appearance' | 'storage') || 'main')
 	const openPage = (p: 'main' | 'appearance' | 'storage') => {
 		haptic(5)
@@ -236,15 +238,38 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 					<h1 className="title">Appearance</h1>
 				</div>
 				<Appearance prefs={prefs} setPrefs={setPrefs} wallpaper={user.data?.wallpaper} />
+				<section>
+					<div className="section-head">
+						<h2>Layout</h2>
+					</div>
+					<Segmented<LayoutPref>
+						label="Layout"
+						value={layout.pref}
+						options={[
+							{id: 'auto', label: 'Automatic'},
+							{id: 'desktop', label: 'Desktop'},
+							{id: 'phone', label: 'Phone'},
+						]}
+						onChange={(v) => {
+							haptic(6)
+							setLayoutPref(v)
+						}}
+					/>
+					<p className="footer-note" style={{textAlign: 'left', margin: '10px 6px 0'}}>
+						Desktop gives you windows, a dock and Activities, like Ubuntu. Automatic uses it on wide screens with a mouse or trackpad. Saved on this device only.
+					</p>
+				</section>
 			</div>
 		)
 
 	return (
 		<div className="stagger">
 			<div style={{display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0 0'}}>
-				<button className="round-btn" aria-label="Back" onClick={onBack}>
-					<Icon name="back" size={20} />
-				</button>
+				{!inWindow && (
+					<button className="round-btn" aria-label="Back" onClick={onBack}>
+						<Icon name="back" size={20} />
+					</button>
+				)}
 				<h1 className="title" style={{margin: 0}}>
 					Settings
 				</h1>

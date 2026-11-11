@@ -94,7 +94,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.8.0', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.9.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -263,6 +263,24 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		const setup = await touch.req('POST', '/api/rpc/hardware.raid.setup', {input: {devices: ['a'], raidType: 'storage'}})
 		assert.equal(setup.status, 404)
 		assert.equal(fake.calls.length, before)
+	})
+
+	test('desktop windows may frame only the Umbrel host, and the Host header can’t inject CSP', async () => {
+		const {request} = await import('node:http')
+		const cspFor = (host) =>
+			new Promise((resolve, reject) => {
+				const u = new URL(touch.base)
+				const r = request({host: u.hostname, port: u.port, path: '/api/bootstrap', headers: {host}}, (res) => {
+					res.resume()
+					resolve(res.headers['content-security-policy'] ?? '')
+				})
+				r.on('error', reject)
+				r.end()
+			})
+		assert.match(await cspFor('192.168.1.50:7780'), /frame-src 'self' http:\/\/192\.168\.1\.50:\* https:\/\/192\.168\.1\.50:\*;/)
+		const evil = await cspFor('x.com;script-src *')
+		assert.doesNotMatch(evil, /script-src \*/)
+		assert.doesNotMatch(evil, /frame-src/)
 	})
 
 	test('wrong HTTP method for a procedure kind is refused', async () => {

@@ -4,6 +4,14 @@ import {createContext, useCallback, useContext, useEffect, useLayoutEffect, useR
 import type {AppState, Machine, Wallpaper} from './api'
 import {Icon} from './icons'
 
+// ---- portals --------------------------------------------------------------------------
+// Sheets, the terminal and the console portal out of their screen. On the phone that's <body>;
+// in a desktop window it's the window itself, so they open inside that window.
+export const PortalRoot = createContext<HTMLElement | null>(null)
+export const usePortalRoot = () => useContext(PortalRoot) ?? document.body
+// True inside a desktop window (screens use it to open things as windows instead of overlays).
+export const InWindow = createContext(false)
+
 // ---- formatting -------------------------------------------------------------
 // Storage in decimal units (as drives are sold); memory in binary (16 GB RAM reads as 16 GB).
 export function bytes(n: number | undefined, digits = 1, base: 1000 | 1024 = 1000) {
@@ -208,6 +216,7 @@ export function Segmented<T extends string>({
 // ---- bottom sheet -----------------------------------------------------------
 export function Sheet({open, onClose, label, children, tall}: {open: boolean; onClose: () => void; label: string; children: ReactNode; tall?: boolean}) {
 	const ref = useRef<HTMLDivElement>(null)
+	const portalRoot = usePortalRoot()
 	const start = useRef<{y: number; t: number} | null>(null)
 	const [drag, setDrag] = useState(0)
 	useEffect(() => {
@@ -265,7 +274,7 @@ export function Sheet({open, onClose, label, children, tall}: {open: boolean; on
 				{children}
 			</div>
 		</>,
-		document.body,
+		portalRoot,
 	)
 }
 
@@ -564,4 +573,44 @@ export function StoreIcon({size = 56}: {size?: number}) {
 			</svg>
 		</span>
 	)
+}
+
+// ---- layout: phone or desktop ---------------------------------------------------------------
+// Stored per device (a phone and a PC signed into the same account want different layouts).
+// Auto picks the desktop on a wide screen with a mouse or trackpad.
+export type LayoutPref = 'auto' | 'desktop' | 'phone'
+const LAYOUT_KEY = 'umbrel-touch:layout'
+const WIDE = '(min-width: 1000px) and (min-height: 600px) and (pointer: fine)'
+function readLayoutPref(): LayoutPref {
+	try {
+		const v = localStorage.getItem(LAYOUT_KEY)
+		return v === 'desktop' || v === 'phone' ? v : 'auto'
+	} catch {
+		return 'auto'
+	}
+}
+export function setLayoutPref(p: LayoutPref) {
+	try {
+		if (p === 'auto') localStorage.removeItem(LAYOUT_KEY)
+		else localStorage.setItem(LAYOUT_KEY, p)
+	} catch {
+		/* private mode: applies for this visit only */
+	}
+	window.dispatchEvent(new CustomEvent('touch:layout', {detail: p}))
+}
+export function useLayout(): {desktop: boolean; pref: LayoutPref} {
+	const [pref, setPref] = useState<LayoutPref>(readLayoutPref)
+	const [wide, setWide] = useState(() => matchMedia(WIDE).matches)
+	useEffect(() => {
+		const mq = matchMedia(WIDE)
+		const onMq = () => setWide(mq.matches)
+		const onPref = (e: Event) => setPref((e as CustomEvent<LayoutPref>).detail ?? readLayoutPref())
+		mq.addEventListener('change', onMq)
+		window.addEventListener('touch:layout', onPref)
+		return () => {
+			mq.removeEventListener('change', onMq)
+			window.removeEventListener('touch:layout', onPref)
+		}
+	}, [])
+	return {desktop: pref === 'desktop' || (pref === 'auto' && wide), pref}
 }

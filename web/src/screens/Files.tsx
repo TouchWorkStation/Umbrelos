@@ -20,7 +20,7 @@ import {
 } from "../api";
 import { useBootstrap, useDisk, useUser } from "../data";
 import { Icon, type IconName } from "../icons";
-import { Sheet, SheetHeader, bytes, haptic, useConfirm, useToast } from "../ui";
+import { Sheet, SheetHeader, bytes, haptic, useConfirm, usePortalRoot, useToast } from "../ui";
 import { SearchField } from "./Apps";
 
 // ---- helpers --------------------------------------------------------------------
@@ -303,6 +303,7 @@ type Place = {
 };
 
 export function Files() {
+  const portalRoot = usePortalRoot();
   const boot = useBootstrap();
   const user = useUser();
   const qc = useQueryClient();
@@ -1014,7 +1015,7 @@ export function Files() {
             <UploadPanel uploads={uploads} onClear={clearUploads} />
           )}
         </>,
-        document.body,
+        portalRoot,
       )}
 
       <Sheet

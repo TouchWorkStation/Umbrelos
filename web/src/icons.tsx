@@ -1,6 +1,13 @@
 // Tabler icons: the same open-source icon family umbrelOS itself uses.
 import {
 	IconActivity,
+	IconAppWindow,
+	IconCalendar,
+	IconChevronDown,
+	IconGridDots,
+	IconMinus,
+	IconSquare,
+	IconSquares,
 	IconAlertTriangle,
 	IconApps,
 	IconArrowUpRight,
@@ -233,6 +240,13 @@ const icons = {
 	debian: IconBrandDebian,
 	windows: IconBrandWindows,
 	macos: IconBrandApple,
+	'win-min': IconMinus,
+	'win-max': IconSquare,
+	'win-restore': IconSquares,
+	'show-apps': IconGridDots,
+	calendar: IconCalendar,
+	'chevron-down': IconChevronDown,
+	window: IconAppWindow,
 } satisfies Record<string, TablerIcon>
 
 export type IconName = keyof typeof icons

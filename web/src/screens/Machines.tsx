@@ -2,6 +2,7 @@ import {useState} from 'react'
 
 import type {Machine} from '../api'
 import {Console} from '../Console'
+import {useDesktop} from '../desktop/Desktop'
 import {CreateMachine} from '../CreateMachine'
 import {useAction, useMachines} from '../data'
 import {Icon, type IconName} from '../icons'
@@ -17,6 +18,7 @@ export function osLook(osId = ''): {icon: IconName; bg: string; name: string} {
 }
 
 export function Machines() {
+	const desk = useDesktop()
 	const machines = useMachines()
 	const [selectedId, setSelectedId] = useState<string | null>(null)
 	const [consoleId, setConsoleId] = useState<string | null>(null)
@@ -114,7 +116,10 @@ export function Machines() {
 					onClose={() => setSelectedId(null)}
 					onConsole={() => {
 						haptic(8)
-						setConsoleId(selected.id)
+						if (desk) {
+							setSelectedId(null)
+							desk.openConsole(selected.id)
+						}						else setConsoleId(selected.id)
 					}}
 				/>
 			)}

@@ -15,7 +15,7 @@ import * as RFBModule from '@novnc/novnc/lib/rfb.js'
 
 import type {Machine} from './api'
 import {Icon} from './icons'
-import {haptic, useToast} from './ui'
+import {haptic, usePortalRoot, useToast} from './ui'
 import {useScreenLock} from './Terminal'
 
 type RFBClass = typeof import('@novnc/novnc/lib/rfb.js').default
@@ -52,7 +52,8 @@ const readMode = (): Mode => {
 	}
 }
 
-export function Console({machine, onClose}: {machine: Machine; onClose: () => void}) {
+export function Console({machine, onClose, embedded}: {machine: Machine; onClose: () => void; embedded?: boolean}) {
+	const portalRoot = usePortalRoot()
 	const rootRef = useRef<HTMLDivElement>(null)
 	const screenRef = useRef<HTMLDivElement>(null) // the visible viewport
 	const stageRef = useRef<HTMLDivElement>(null) // zoomed/panned layer holding noVNC
@@ -60,7 +61,7 @@ export function Console({machine, onClose}: {machine: Machine; onClose: () => vo
 	const cursorRef = useRef<HTMLDivElement>(null)
 	const input = useRef<HTMLTextAreaElement>(null)
 	const rfbRef = useRef<InstanceType<RFBClass>>()
-	useScreenLock(rootRef, false)
+	useScreenLock(rootRef, false, !embedded)
 	const [state, setState] = useState<State>('connecting')
 	const [message, setMessage] = useState('')
 	const [mods, setMods] = useState({Ctrl: false, Alt: false, Shift: false})
@@ -320,6 +321,9 @@ export function Console({machine, onClose}: {machine: Machine; onClose: () => vo
 		// A real mouse (desktop) maps straight through.
 		if (e.pointerType === 'mouse') {
 			st.kind = 'mouse'
+			// On a desktop, clicking the screen gives the VM your physical keyboard
+			// (noVNC's own handler: every key and shortcut, modifiers included).
+			if (embedded) window.setTimeout(() => rfbRef.current?.focus(), 0)
 			const fb = toFb(p)
 			if (!fb) return
 			cursor.current = fb
@@ -594,7 +598,7 @@ export function Console({machine, onClose}: {machine: Machine; onClose: () => vo
 	const live = state === 'connected'
 
 	return createPortal(
-		<div ref={rootRef} className="console" role="dialog" aria-modal="true" aria-label={`${machine.name} console`}>
+		<div ref={rootRef} className={`console${embedded ? ' embedded' : ''}`} role="dialog" aria-modal={!embedded} aria-label={`${machine.name} console`}>
 			<header className="console-bar">
 				<button className="round-btn" aria-label="Close console" onClick={onClose}>
 					<Icon name="back" size={20} />
@@ -732,6 +736,6 @@ export function Console({machine, onClose}: {machine: Machine; onClose: () => vo
 				onBlur={() => setKeyboardOpen(false)}
 			/>
 		</div>,
-		document.body,
+		portalRoot,
 	)
 }

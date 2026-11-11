@@ -3,6 +3,7 @@ import {useQuery} from '@tanstack/react-query'
 
 import {mutate, query, type UserApp} from './api'
 import {appUrl, useAction, useBootstrap} from './data'
+import {useDesktop} from './desktop/Desktop'
 import {Icon, type IconName} from './icons'
 import {AppIcon, KV, Sheet, SheetHeader, StatusPill, appStatus, haptic, isAppBusy, useConfirm, useToast} from './ui'
 
@@ -10,6 +11,7 @@ type Props = {app: UserApp | null; update?: {version: string}; onClose: () => vo
 type A = {id: string; label: string; icon: IconName; onClick: () => void; disabled?: boolean}
 
 export function AppSheet({app, update, onClose, onTerminal}: Props) {
+	const desk = useDesktop()
 	const boot = useBootstrap()
 	const action = useAction()
 	const confirm = useConfirm()
@@ -31,6 +33,11 @@ export function AppSheet({app, update, onClose, onTerminal}: Props) {
 	const open = () => {
 		if (!url) return
 		haptic(6)
+		if (desk) {
+			onClose()
+			desk.launch(app)
+			return
+		}
 		mutate('apps.trackOpen', {appId: app.id}).catch(() => {})
 		window.open(url, '_blank', 'noopener')
 	}

@@ -18,7 +18,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.8.0'
+export const VERSION = '0.9.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -190,10 +190,21 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 		return client
 	}
 
+	// Desktop mode opens Umbrel apps in windows, i.e. frames of http(s)://<umbrel host>:<app port>.
+	// Allow exactly that host (any port) and nothing else. The Host header is client-controlled,
+	// so only a plain hostname or IP makes it into the policy.
+	const frameHost = (req) => {
+		const c = getClient()
+		if (!c) return null
+		const upstream = new URL(c.baseUrl).hostname
+		const host = isLoopback(upstream) ? req.hostname : upstream
+		return /^[a-z0-9.-]{1,253}$/i.test(host ?? '') ? host : null
+	}
 	app.use((req, res, next) => {
+		const fh = frameHost(req)
+		const frameSrc = fh ? `frame-src 'self' http://${fh}:* https://${fh}:*; ` : ''
 		res.set({
-			'Content-Security-Policy':
-				"default-src 'self'; img-src * data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+			'Content-Security-Policy': `default-src 'self'; img-src * data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ws: wss:; ${frameSrc}frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
 			'Referrer-Policy': 'no-referrer',
 			'X-Content-Type-Options': 'nosniff',
 		})
