@@ -2,6 +2,8 @@
 import {
 	IconActivity,
 	IconAppWindow,
+	IconMaximize,
+	IconMinimize,
 	IconCalendar,
 	IconChevronDown,
 	IconGridDots,
@@ -247,6 +249,8 @@ const icons = {
 	calendar: IconCalendar,
 	'chevron-down': IconChevronDown,
 	window: IconAppWindow,
+	fullscreen: IconMaximize,
+	'fullscreen-exit': IconMinimize,
 } satisfies Record<string, TablerIcon>
 
 export type IconName = keyof typeof icons

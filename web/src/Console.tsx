@@ -23,6 +23,17 @@ type RFBClass = typeof import('@novnc/novnc/lib/rfb.js').default
 const RFB: RFBClass = ((RFBModule as any).default?.default ?? (RFBModule as any).default) as RFBClass
 
 const SUPERSEDED = 4001
+// Desktop (mouse + keyboard) console: how the picture fits the window.
+type Scale = 'fit' | 'actual' | 'remote'
+const readScale = (): Scale => {
+	try {
+		const v = localStorage.getItem('umbrel-touch:console-scale')
+		return v === 'actual' || v === 'remote' ? v : 'fit'
+	} catch {
+		return 'fit'
+	}
+}
+const F = (n: number) => 0xffbd + n // F1 = 0xffbe
 const KEY = {Escape: 0xff1b, Tab: 0xff09, Enter: 0xff0d, Backspace: 0xff08, Up: 0xff52, Down: 0xff54, Left: 0xff51, Right: 0xff53, Ctrl: 0xffe3, Alt: 0xffe9, Super: 0xffeb, Shift: 0xffe1}
 const BTN = {left: 1, middle: 2, right: 4, wheelUp: 8, wheelDown: 16, wheelLeft: 32, wheelRight: 64}
 const MIN_ZOOM = 1
@@ -62,6 +73,16 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 	const input = useRef<HTMLTextAreaElement>(null)
 	const rfbRef = useRef<InstanceType<RFBClass>>()
 	useScreenLock(rootRef, false, !embedded)
+	// In a desktop window with a mouse, noVNC gets the real mouse and keyboard directly
+	// (like any desktop VNC client) and the console gets a desktop toolbar instead of touch controls.
+	const deskUi = !!embedded && typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches
+	const [scale, setScaleState] = useState<Scale>(readScale)
+	const [canResize, setCanResize] = useState(false)
+	const [res, setRes] = useState<{w: number; h: number} | null>(null)
+	const [fullscreen, setFullscreen] = useState(false)
+	const [barShown, setBarShown] = useState(true)
+	const [keysOpen, setKeysOpen] = useState(false)
+	const [typing, setTyping] = useState<string | null>(null)
 	const [state, setState] = useState<State>('connecting')
 	const [message, setMessage] = useState('')
 	const [mods, setMods] = useState({Ctrl: false, Alt: false, Shift: false})
@@ -116,11 +137,22 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 			r.resizeSession = false
 			r.focusOnClick = false
 			r.background = '#000'
+			if (deskUi) {
+				r.focusOnClick = true
+				;(r as any).showDotCursor = true
+				applyScale(r, readScale())
+			}
 			r.addEventListener('connect', () => {
 				setState('connected')
 				haptic(8)
+				if (deskUi) {
+					window.setTimeout(() => {
+						setCanResize(!!(r as any)._supportsSetDesktopSize)
+						r.focus()
+					}, 600)
+				}
 				try {
-					if (!localStorage.getItem('umbrel-touch:console-hint')) {
+					if (!deskUi && !localStorage.getItem('umbrel-touch:console-hint')) {
 						localStorage.setItem('umbrel-touch:console-hint', '1')
 						toast(HINT[readMode()])
 					}
@@ -155,6 +187,106 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [machine.id, attempt])
+
+	// ---- desktop console ---------------------------------------------------------------
+	function applyScale(r: InstanceType<RFBClass>, sc: Scale) {
+		r.scaleViewport = sc === 'fit'
+		;(r as any).clipViewport = sc === 'actual'
+		r.resizeSession = sc === 'remote'
+	}
+	const setScale = (sc: Scale) => {
+		setScaleState(sc)
+		try {
+			localStorage.setItem('umbrel-touch:console-scale', sc)
+		} catch {
+			/* not saved */
+		}
+		const r = rfbRef.current
+		if (r) {
+			applyScale(r, sc)
+			r.focus()
+		}
+		if (sc === 'remote' && !canResize) toast('This machine can’t change its resolution from here; showing it fitted instead.')
+	}
+	// Resolution readout (noVNC has no public resize event).
+	useEffect(() => {
+		if (!deskUi) return
+		const t = window.setInterval(() => {
+			const fb = fbSize()
+			setRes((cur) => (fb && (cur?.w !== fb.w || cur?.h !== fb.h) ? fb : cur))
+		}, 1000)
+		return () => window.clearInterval(t)
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [deskUi])
+	// Full screen: the console alone, edge to edge. Where the browser allows it (Chrome on
+	// HTTPS), system keys like Esc, Alt+Tab and the Windows/Super key go to the machine too.
+	useEffect(() => {
+		if (!deskUi) return
+		const on = () => {
+			const fs = document.fullscreenElement === rootRef.current
+			setFullscreen(fs)
+			const kb = (navigator as Navigator & {keyboard?: {lock?: () => Promise<void>; unlock?: () => void}}).keyboard
+			if (fs) {
+				setBarShown(true)
+				window.setTimeout(() => setBarShown(false), 2200)
+				const locked = kb?.lock ? kb.lock().then(() => true, () => false) : Promise.resolve(false)
+				locked.then((ok) => toast(ok ? 'Full screen · hold Esc to exit' : 'Full screen · press Esc to exit'))
+				rfbRef.current?.focus()
+			} else {
+				kb?.unlock?.()
+				setBarShown(true)
+			}
+		}
+		document.addEventListener('fullscreenchange', on)
+		return () => document.removeEventListener('fullscreenchange', on)
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [deskUi])
+	const toggleFullscreen = () => {
+		if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+		else rootRef.current?.requestFullscreen({navigationUI: 'hide'}).catch(() => toast('Full screen isn’t available here', true))
+	}
+	const combo = (syms: number[]) => {
+		const r = rfbRef.current
+		if (!r) return
+		for (const k of syms) r.sendKey(k, null, true)
+		for (const k of [...syms].reverse()) r.sendKey(k, null, false)
+		r.focus()
+	}
+	const typeText = (text: string) => {
+		const r = rfbRef.current
+		if (!r) return
+		for (const ch of text.replace(/\r\n?/g, '\n')) {
+			const k = ch === '\n' ? KEY.Enter : ch === '\t' ? KEY.Tab : keysymOf(ch)
+			r.sendKey(k, null, true)
+			r.sendKey(k, null, false)
+		}
+		r.focus()
+	}
+	const screenshot = async () => {
+		const canvas = canvasHost.current?.querySelector('canvas')
+		if (!canvas) return
+		canvas.toBlob((blob) => {
+			if (!blob) return
+			const a = document.createElement('a')
+			a.href = URL.createObjectURL(blob)
+			a.download = `${machine.name.replace(/[^\w.-]+/g, '-')}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`
+			a.click()
+			window.setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+			toast('Screenshot saved')
+		}, 'image/png')
+	}
+	const KEY_COMBOS: {label: string; keys: number[] | 'cad'}[] = [
+		{label: 'Ctrl + Alt + Delete', keys: 'cad'},
+		{label: 'Ctrl + Alt + Backspace', keys: [KEY.Ctrl, KEY.Alt, KEY.Backspace]},
+		{label: 'Alt + Tab', keys: [KEY.Alt, KEY.Tab]},
+		{label: 'Alt + F4', keys: [KEY.Alt, F(4)]},
+		{label: 'Super (Windows key)', keys: [KEY.Super]},
+		{label: 'Escape', keys: [KEY.Escape]},
+		{label: 'Print Screen', keys: [0xff61]},
+		{label: 'Ctrl + Alt + F1', keys: [KEY.Ctrl, KEY.Alt, F(1)]},
+		{label: 'Ctrl + Alt + F2', keys: [KEY.Ctrl, KEY.Alt, F(2)]},
+		{label: 'Ctrl + Alt + F7', keys: [KEY.Ctrl, KEY.Alt, F(7)]},
+	]
 
 	// ---- geometry ----------------------------------------------------------------
 	const fbSize = () => {
@@ -598,7 +730,121 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 	const live = state === 'connected'
 
 	return createPortal(
-		<div ref={rootRef} className={`console${embedded ? ' embedded' : ''}`} role="dialog" aria-modal={!embedded} aria-label={`${machine.name} console`}>
+		<div
+			ref={rootRef}
+			className={`console${embedded ? ' embedded' : ''}${deskUi ? ' desk-ui' : ''}${fullscreen ? ' fs' : ''}${barShown ? ' bar-shown' : ''}`}
+			role="dialog"
+			aria-modal={!embedded}
+			aria-label={`${machine.name} console`}
+>
+			{fullscreen && !barShown && <div className="ct-hotzone" onMouseEnter={() => setBarShown(true)} aria-hidden="true" />}
+			{deskUi ? (
+				<header className="console-toolbar" onMouseLeave={() => fullscreen && !keysOpen && typing === null && setBarShown(false)}>
+					<span className="ct-status">
+						<i className={`dot ${live ? 'live' : state === 'connecting' ? '' : 'down'}`} />
+						<b>{fullscreen ? machine.name : live ? 'Connected' : state === 'connecting' ? 'Connecting…' : state === 'lost' ? 'Reconnecting…' : state === 'superseded' ? 'Opened elsewhere' : 'Unavailable'}</b>
+						{res && <span className="ct-res">{res.w} × {res.h}</span>}
+					</span>
+					<div className="ct-scale" role="radiogroup" aria-label="Display">
+						<button role="radio" aria-checked={scale === 'fit'} className={scale === 'fit' ? 'on' : ''} onClick={() => setScale('fit')} title="Scale the picture to fit the window">
+							<Icon name="win-max" size={14} />
+							Fit
+						</button>
+						<button role="radio" aria-checked={scale === 'actual'} className={scale === 'actual' ? 'on' : ''} onClick={() => setScale('actual')} title="Show every pixel at 100%, with scrollbars">
+							100%
+						</button>
+						<button
+							role="radio"
+							aria-checked={scale === 'remote'}
+							className={scale === 'remote' ? 'on' : ''}
+							onClick={() => setScale('remote')}
+							disabled={live && !canResize}
+							title={canResize || !live ? 'Change the machine’s resolution to match this window' : 'This machine doesn’t support changing its resolution remotely'}
+						>
+							Resize VM
+						</button>
+					</div>
+					<span className="ct-spacer" />
+					<div className="ct-menu-wrap">
+						<button className={`ct-btn${keysOpen ? ' on' : ''}`} disabled={!live} onClick={() => setKeysOpen((o) => !o)} aria-expanded={keysOpen}>
+							<Icon name="keyboard" size={17} />
+							Keys
+							<Icon name="chevron-down" size={13} />
+						</button>
+						{keysOpen && (
+							<>
+								<button className="ct-scrim" aria-label="Close" onClick={() => setKeysOpen(false)} />
+								<div className="ct-menu" role="menu">
+									{KEY_COMBOS.map((k) => (
+										<button
+											key={k.label}
+											role="menuitem"
+											onClick={() => {
+												setKeysOpen(false)
+												if (k.keys === 'cad') rfbRef.current?.sendCtrlAltDel()
+												else combo(k.keys)
+												toast(`Sent ${k.label}`)
+											}}
+										>
+											{k.label}
+										</button>
+									))}
+								</div>
+							</>
+						)}
+					</div>
+					<button className="ct-btn" disabled={!live} onClick={() => setTyping('')} title="Type text into the machine (for when copy and paste between your computer and the machine isn’t available)">
+						<Icon name="file-text" size={16} />
+						Type text
+					</button>
+					<button className="ct-btn icon" disabled={!live} onClick={screenshot} title="Save a screenshot" aria-label="Save a screenshot">
+						<Icon name="image" size={17} />
+					</button>
+					<button className="ct-btn icon" onClick={toggleFullscreen} title={fullscreen ? 'Exit full screen' : 'Full screen'} aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}>
+						<Icon name={fullscreen ? 'fullscreen-exit' : 'fullscreen'} size={17} />
+					</button>
+					{fullscreen && (
+						<button className="ct-btn icon" onClick={() => document.exitFullscreen().catch(() => {})} title="Exit full screen" aria-label="Exit full screen (Esc)">
+							<Icon name="close" size={16} />
+						</button>
+					)}
+					{typing !== null && (
+						<div className="ct-type" role="dialog" aria-label="Type text into the machine">
+							<textarea
+								autoFocus
+								value={typing}
+								onChange={(e) => setTyping(e.target.value)}
+								placeholder="Paste or type text, then send it to the machine as keystrokes"
+								spellCheck={false}
+								onKeyDown={(e) => {
+									if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && typing) {
+										typeText(typing)
+										setTyping(null)
+									}
+									if (e.key === 'Escape') setTyping(null)
+								}}
+							/>
+							<div className="ct-type-actions">
+								<span>Ctrl + Enter to send</span>
+								<button className="btn" onClick={() => setTyping(null)}>
+									Cancel
+								</button>
+								<button
+									className="btn primary"
+									disabled={!typing}
+									onClick={() => {
+										typeText(typing)
+										setTyping(null)
+										toast('Typed into the machine')
+									}}
+								>
+									Send keystrokes
+								</button>
+							</div>
+						</div>
+					)}
+				</header>
+			) : (
 			<header className="console-bar">
 				<button className="round-btn" aria-label="Close console" onClick={onClose}>
 					<Icon name="back" size={20} />
@@ -620,13 +866,14 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 					</button>
 				</div>
 			</header>
+			)}
 
 			<div ref={screenRef} className="console-screen">
 				<div ref={stageRef} className="console-stage">
 					<div ref={canvasHost} className="console-canvas" />
 				</div>
 				{/* Every touch lands here, above noVNC's canvas, so our gestures decide what the VM gets. */}
-				<div
+				{!deskUi && <div
 					className="console-touch"
 					onPointerDown={onPointerDown}
 					onPointerMove={onPointerMove}
@@ -634,14 +881,14 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 					onPointerCancel={onPointerUp}
 					onWheel={onWheel}
 					onContextMenu={(e) => e.preventDefault()}
-				/>
-				<div ref={cursorRef} className={`console-cursor${mode === 'mouse' ? '' : ' hidden'}`} aria-hidden="true">
+				/>}
+				<div ref={cursorRef} className={`console-cursor${mode === 'mouse' && !deskUi ? '' : ' hidden'}`} aria-hidden="true">
 					<svg width="22" height="22" viewBox="0 0 24 24">
 						<path d="M4 2.5v17.2l4.7-4.4 3 6.7 3.1-1.4-3-6.6 6.4-.4z" fill="#fff" stroke="#111" strokeWidth="1.4" strokeLinejoin="round" />
 					</svg>
 				</div>
 
-				{live && (
+				{live && !deskUi && (
 					<div className="console-float right" onPointerDown={(e) => e.stopPropagation()}>
 						<button aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)} disabled={zoomLabel <= 100}>
 							<Icon name="zoom-out" size={18} />
@@ -654,7 +901,7 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 						</button>
 					</div>
 				)}
-				{live && mode === 'mouse' && (
+				{live && mode === 'mouse' && !deskUi && (
 					<div className="console-float left mouse-buttons" onPointerDown={(e) => e.stopPropagation()}>
 						<button aria-label="Left mouse button (hold to drag)" {...holdButton(BTN.left)}>
 							L
@@ -689,7 +936,7 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 				)}
 			</div>
 
-			<div className="console-dock">
+			{!deskUi && <div className="console-dock">
 				<button className={`kbd-btn${keyboardOpen ? ' on' : ''}`} aria-label={keyboardOpen ? 'Hide keyboard' : 'Show keyboard'} aria-pressed={keyboardOpen} disabled={!live} onClick={toggleKeyboard}>
 					<Icon name={keyboardOpen ? 'keyboard-hide' : 'keyboard'} size={22} />
 				</button>
@@ -721,8 +968,8 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 						ctrl alt del
 					</button>
 				</div>
-			</div>
-			<textarea
+			</div>}
+			{!deskUi && <textarea
 				ref={input}
 				className="console-input"
 				aria-label="Type into the machine"
@@ -734,7 +981,7 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 				onKeyDown={onKeyDown}
 				onFocus={() => setKeyboardOpen(true)}
 				onBlur={() => setKeyboardOpen(false)}
-			/>
+			/>}
 		</div>,
 		portalRoot,
 	)
