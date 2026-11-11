@@ -1507,30 +1507,129 @@ function WindowFrame({
 	)
 }
 
+type Access = 'checking' | 'ok' | 'signin' | 'not-shared' | 'unknown'
+const checkAccess = (appId: string): Promise<Access> =>
+	fetch(`/api/app-access?app=${encodeURIComponent(appId)}`, {credentials: 'same-origin'})
+		.then((r) => (r.ok ? r.json() : {state: 'unknown'}))
+		.then((b) => (['ok', 'signin', 'not-shared'].includes(b?.state) ? b.state : 'unknown'))
+		.catch(() => 'unknown' as const)
+
+// An Umbrel app in a window. umbrelOS asks each browser to sign in before it opens apps, and its
+// sign-in page refuses to load inside another page, so that one step happens in a normal tab.
+// The session it creates covers all of this browser's apps (7 days); the window then loads.
 function AppFrame({app, url}: {app?: UserApp; url: string | null}) {
 	const [loaded, setLoaded] = useState(false)
+	const [access, setAccess] = useState<Access>('checking')
+	const [waiting, setWaiting] = useState(false)
+	const appId = app?.id
+	useEffect(() => {
+		if (!appId) return
+		let alive = true
+		checkAccess(appId).then((s) => alive && setAccess(s))
+		return () => {
+			alive = false
+		}
+	}, [appId])
+	// While the sign-in tab is open: check again every couple of seconds and on returning here.
+	useEffect(() => {
+		if (!waiting || !appId) return
+		let alive = true
+		const again = () =>
+			checkAccess(appId).then((s) => {
+				if (!alive) return
+				if (s === 'ok' || s === 'not-shared') {
+					setAccess(s)
+					setWaiting(false)
+				}
+			})
+		const t = window.setInterval(again, 2000)
+		window.addEventListener('focus', again)
+		return () => {
+			alive = false
+			window.clearInterval(t)
+			window.removeEventListener('focus', again)
+		}
+	}, [waiting, appId])
+
 	if (!app) return <div className="win-empty">This app is no longer installed.</div>
 	if (!url) return <div className="win-empty">{app.name ?? app.id} doesn’t have a web interface.</div>
+	const name = app.name ?? app.id
 	if (app.state && app.state !== 'ready' && app.state !== 'running')
 		return (
 			<div className="win-empty">
 				<AppIcon src={app.icon} name={app.name} size={64} dim />
-				<b>{app.name ?? app.id} isn’t running</b>
+				<b>{name} isn’t running</b>
 				<span>Start it from Apps, then reload this window.</span>
+			</div>
+		)
+	if (app.requiresHttps)
+		return (
+			<div className="win-empty app-gate">
+				<AppIcon src={app.icon} name={name} size={64} />
+				<b>{name} opens in its own tab</b>
+				<span>It needs a secure (HTTPS) connection with its own certificate, which can’t be shown inside a window.</span>
+				<button className="btn primary" onClick={() => window.open(url, '_blank', 'noopener')}>
+					<Icon name="open" size={17} />
+					Open {name}
+				</button>
+			</div>
+		)
+	if (access === 'checking')
+		return (
+			<div className="frame-loading">
+				<AppIcon src={app.icon} name={name} size={64} />
+				<span className="spinner" />
+			</div>
+		)
+	if (access === 'signin')
+		return (
+			<div className="win-empty app-gate">
+				<AppIcon src={app.icon} name={name} size={64} />
+				<b>{waiting ? 'Waiting for you to sign in…' : `Sign in to open ${name}`}</b>
+				<span>
+					{waiting
+						? `Sign in to umbrelOS in the tab that opened. ${name} then loads here by itself; you can close that tab.`
+						: 'umbrelOS asks each browser to sign in once before it opens your apps. Its sign-in page can’t be shown inside a window, so it opens in a new tab. Afterwards every app opens here for the next 7 days.'}
+				</span>
+				<div className="app-gate-actions">
+					<button
+						className="btn primary"
+						onClick={() => {
+							window.open(url, '_blank', 'noopener')
+							setWaiting(true)
+						}}
+					>
+						<Icon name="open" size={17} />
+						{waiting ? 'Open sign-in again' : 'Sign in'}
+					</button>
+					{waiting && (
+						<button className="btn" onClick={() => checkAccess(app.id).then((s) => (s === 'signin' ? undefined : (setAccess(s), setWaiting(false))))}>
+							I’ve signed in
+						</button>
+					)}
+				</div>
+			</div>
+		)
+	if (access === 'not-shared')
+		return (
+			<div className="win-empty app-gate">
+				<AppIcon src={app.icon} name={name} size={64} dim />
+				<b>{name} isn’t shared with you</b>
+				<span>Ask the Umbrel’s owner to share it with your account in umbrelOS.</span>
 			</div>
 		)
 	return (
 		<>
 			{!loaded && (
 				<div className="frame-loading">
-					<AppIcon src={app.icon} name={app.name} size={64} />
+					<AppIcon src={app.icon} name={name} size={64} />
 					<span className="spinner" />
 				</div>
 			)}
 			<iframe
 				className="app-frame"
 				src={url}
-				title={app.name ?? app.id}
+				title={name}
 				onLoad={() => setLoaded(true)}
 				allow="clipboard-read; clipboard-write; fullscreen; camera; microphone; display-capture"
 				allowFullScreen

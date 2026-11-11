@@ -5295,3 +5295,31 @@ html.desk-mode body {
 	right: 0;
 	height: 6px;
 }
+.app-gate {
+	gap: 12px;
+	padding: 32px;
+}
+.app-gate b {
+	font-size: 18px;
+}
+.app-gate > span {
+	max-width: 440px;
+	line-height: 1.5;
+	font-size: 14px;
+}
+.app-gate .btn {
+	min-height: 42px;
+	padding: 0 18px;
+	border-radius: 21px;
+	gap: 8px;
+}
+.app-gate-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 4px;
+}
+.app-gate-actions .btn:not(.primary) {
+	background: var(--glass);
+	border: 1px solid var(--line);
+	color: var(--fg);
+}

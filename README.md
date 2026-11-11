@@ -91,7 +91,9 @@ Wallpaper credits and licences: [web/public/wallpapers/CREDITS.md](web/public/wa
 
 **Settings → Appearance → Layout** picks the layout: *Automatic* uses the desktop on wide screens with a mouse or trackpad (phones and tablets stay on the touch layout), *Desktop* or *Phone* forces one. It's saved per device.
 
-Some apps refuse to be shown inside another page (they send `X-Frame-Options` or a `frame-ancestors` policy), and an app may ask you to sign in to umbrelOS first. Both show up as a blank window or an umbrelOS sign-in; use **Open in a browser tab** for those. Touch's own security policy allows frames only from your Umbrel's address.
+**Signing in to apps.** umbrelOS asks each browser to sign in before it opens apps (its sign-in runs on port 2000). That page refuses to be shown inside another page, so when a browser isn't signed in yet, the app window shows a **Sign in** button that opens umbrelOS's sign-in in a new tab. Once you've signed in, the window loads the app by itself, and every app opens in windows for the next 7 days. Touch checks the session with umbrelOS (yes or no only); it never sees your password, and it never stores, logs or returns the session.
+
+A few apps also refuse to be shown inside another page themselves (`X-Frame-Options` or `frame-ancestors`), and apps that need HTTPS with their own certificate open in their own tab; use **Open in a browser tab** in the window's title bar for those. Touch's own security policy allows frames only from your Umbrel's address.
 
 ## Files
 

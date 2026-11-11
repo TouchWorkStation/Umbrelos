@@ -447,6 +447,7 @@ export function startFakeUmbreld({
 		: {name: undefined, exists: false}
 	const usbDrives = [{id: 'sde', name: 'SanDisk Extreme', transport: 'usb', size: 1e12, partitions: [{id: 'sde1', label: 'BACKUP', size: 1e12, mountpoints: ['/External/BACKUP'], supportsAppDataRoot: false}]}]
 
+	const appAuthChecks = []
 	const server = http.createServer(async (req, res) => {
 		const send = (status, body) => {
 			res.writeHead(status, {'content-type': 'application/json'})
@@ -458,6 +459,15 @@ export function startFakeUmbreld({
 		}
 		const url = new URL(req.url, 'http://x')
 		if (url.pathname.startsWith('/api/files/')) return fileApi(req, res, url)
+		// umbreld's app gateway sign-in check (/app-auth/v1/account/session). The fake
+		// accepts the session token "good-app-session"; the app "private-notes" isn't shared.
+		if (url.pathname === '/app-auth/v1/account/session') {
+			appAuthChecks.push({app: url.searchParams.get('app'), cookie: req.headers.cookie ?? ''})
+			const token = /(?:^|;\s*)UMBREL_APP_SESSION=([^;]+)/.exec(req.headers.cookie ?? '')?.[1]
+			if (token !== 'good-app-session') return send(401, {error: {code: -32001, message: 'Unauthorized'}})
+			if (url.searchParams.get('app') === 'private-notes') return send(403, {error: {code: -32003, message: 'This app has not been shared with this account'}})
+			return send(200, {url: 'http://x/umbrel_/api/v1/auth/handoff', params: {r: '/', handoff: 'h'}})
+		}
 		const wp = url.pathname.match(/^\/assets\/wallpapers\/(\d+)\.jpg$/)
 		if (wp) {
 			try {
@@ -563,6 +573,7 @@ export function startFakeUmbreld({
 				lastCreate: () => lastCreate,
 				fsTree,
 				apps,
+				appAuthChecks,
 				expireAllAccessTokens: () => {
 					for (const v of tokens.values()) v.expiresAt = 0
 				},

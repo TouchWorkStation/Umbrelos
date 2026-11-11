@@ -18,7 +18,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.11.0'
+export const VERSION = '0.11.1'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -138,7 +138,14 @@ function parseCookies(header = '') {
 	const out = {}
 	for (const part of header.split(';')) {
 		const i = part.indexOf('=')
-		if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim())
+		if (i <= 0) continue
+		// Self-hosted apps on the same host share its cookies; a malformed one must not break us.
+		const raw = part.slice(i + 1).trim()
+		try {
+			out[part.slice(0, i).trim()] = decodeURIComponent(raw)
+		} catch {
+			out[part.slice(0, i).trim()] = raw
+		}
 	}
 	return out
 }
@@ -689,6 +696,33 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 			res.json({ok: true, path: body.path ?? path})
 		} catch (error) {
 			sendError(res, error)
+		}
+	})
+
+	// Desktop app windows: is this browser signed in to umbrelOS's app gateway for this app?
+	// umbrelOS protects every app with its own sign-in (port 2000, /app-auth), whose page refuses
+	// to be shown inside another site's frame. The resulting session cookie is per host, not per
+	// port, so the browser also sends it to Touch. We only ask umbrelOS whether it is valid for
+	// the app (the same check umbrelOS's own sign-in page makes) and answer yes/no. The cookie
+	// itself is never stored, logged or returned, and this can't sign anyone in.
+	const APP_COOKIES = ['UMBREL_APP_SESSION', '__Host-UMBREL_APP_SESSION_HTTPS']
+	api.get('/app-access', async (req, res) => {
+		res.set('Cache-Control', 'no-store')
+		if (!store.getSession(req.sid)) return res.status(401).json({error: {code: 'UNAUTHORIZED', message: 'Signed out'}})
+		const appId = String(req.query.app ?? '')
+		if (!/^[a-zA-Z0-9-]{1,100}$/.test(appId)) return res.status(400).json({error: {code: 'BAD_REQUEST', message: 'Bad app'}})
+		const cookies = parseCookies(req.headers.cookie)
+		const token = APP_COOKIES.map((n) => cookies[n]).find((v) => typeof v === 'string' && v.length > 0 && v.length < 4096)
+		if (!token) return res.json({state: 'signin'})
+		try {
+			const url = new URL(`${getClient().baseUrl}/app-auth/v1/account/session`)
+			url.search = new URLSearchParams({app: appId, origin: 'host', path: '/'}).toString()
+			// umbreld is reached over plain HTTP here, so it reads the plain-HTTP cookie name.
+			const r = await fetch(url, {headers: {cookie: `UMBREL_APP_SESSION=${encodeURIComponent(token)}`, accept: 'application/json'}, redirect: 'manual', signal: AbortSignal.timeout(8000)})
+			await r.arrayBuffer().catch(() => {})
+			res.json({state: r.status === 200 ? 'ok' : r.status === 401 ? 'signin' : r.status === 403 ? 'not-shared' : 'unknown'})
+		} catch {
+			res.json({state: 'unknown'})
 		}
 	})
 

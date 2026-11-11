@@ -94,7 +94,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.11.0', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.11.1', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -281,6 +281,26 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		const evil = await cspFor('x.com;script-src *')
 		assert.doesNotMatch(evil, /script-src \*/)
 		assert.doesNotMatch(evil, /frame-src/)
+	})
+
+	test('app windows: reports whether the browser’s umbrelOS app session is valid, never the session itself', async () => {
+		const ask = (app, extra) => touch.req('GET', `/api/app-access?app=${app}`, undefined, {cookie: `${touch.getCookie()}${extra}`})
+		// a malformed cookie from another app on the same host must not break anything
+		let r = await ask('nextcloud', '; junk=%E0%A4%A')
+		assert.equal(r.status, 200)
+		assert.deepEqual(r.body, {state: 'signin'})
+		r = await ask('nextcloud', '; UMBREL_APP_SESSION=expired')
+		assert.deepEqual(r.body, {state: 'signin'})
+		r = await ask('nextcloud', '; UMBREL_APP_SESSION=good-app-session')
+		assert.deepEqual(r.body, {state: 'ok'})
+		r = await ask('private-notes', '; UMBREL_APP_SESSION=good-app-session')
+		assert.deepEqual(r.body, {state: 'not-shared'})
+		const check = fake.appAuthChecks.at(-1)
+		assert.equal(check.app, 'private-notes')
+		assert.equal(check.cookie, 'UMBREL_APP_SESSION=good-app-session') // only the app cookie is forwarded
+		assert.equal((await touch.req('GET', '/api/app-access?app=../../x')).status, 400)
+		const out = await fetch(`${touch.base}/api/app-access?app=nextcloud`, {headers: {cookie: 'UMBREL_APP_SESSION=good-app-session'}})
+		assert.equal(out.status, 401) // needs a Touch session too
 	})
 
 	test('wrong HTTP method for a procedure kind is refused', async () => {
