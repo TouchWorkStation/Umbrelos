@@ -619,3 +619,40 @@ export function useLayout(): {desktop: boolean; pref: LayoutPref} {
 	}, [])
 	return {desktop: pref === 'desktop' || (pref === 'auto' && wide), pref}
 }
+
+// ---- iOS keyboard viewport repair -------------------------------------------------------------
+// After the on-screen keyboard closes, iOS Safari can keep the shrunken viewport, so fixed
+// elements (the dock, the backdrop) sit too high and leave a strip at the bottom until the page
+// scrolls. A one-pixel scroll and back makes it measure again, even on screens that don't scroll.
+export function nudgeViewport() {
+	if (document.documentElement.classList.contains('desk-mode')) return
+	const root = document.documentElement
+	const y = window.scrollY
+	const prev = root.style.minHeight
+	root.style.minHeight = 'calc(100% + 2px)'
+	window.scrollTo(0, y + 1)
+	requestAnimationFrame(() => {
+		window.scrollTo(0, y)
+		root.style.minHeight = prev
+	})
+}
+let viewportTimers: number[] = []
+export function settleViewport() {
+	viewportTimers.forEach(window.clearTimeout)
+	viewportTimers = [80, 350, 800].map((ms) => window.setTimeout(nudgeViewport, ms))
+}
+export function watchKeyboardViewport() {
+	const vv = window.visualViewport
+	if (!vv || !matchMedia('(pointer: coarse)').matches) return
+	let wasOpen = false
+	vv.addEventListener('resize', () => {
+		const open = window.innerHeight - vv.height > 80
+		if (wasOpen && !open) settleViewport()
+		wasOpen = open
+	})
+	// Leaving a text field (or closing a screen that had the keyboard up) may not resize at all.
+	document.addEventListener('focusout', (e) => {
+		const t = e.target as HTMLElement | null
+		if (t && /^(INPUT|TEXTAREA)$/.test(t.tagName)) settleViewport()
+	})
+}

@@ -4,10 +4,11 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 
 import {App} from './App'
 import {ApiError} from './api'
-import {Providers, applyPrefs, readPrefs} from './ui'
+import {Providers, applyPrefs, readPrefs, watchKeyboardViewport} from './ui'
 import './styles.css'
 
 applyPrefs(readPrefs())
+watchKeyboardViewport()
 
 const client = new QueryClient({
 	defaultOptions: {
