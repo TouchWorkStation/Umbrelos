@@ -360,12 +360,59 @@ export function Console({machine, onClose, embedded}: {machine: Machine; onClose
 		haptic(5)
 		applyView({z: 1, x: 0, y: 0}, true)
 	}
+	// Refit whenever the screen area changes size (rotation, keyboard, window), not only on window resize.
 	useEffect(() => {
-		const onResize = () => applyView(view.current)
-		window.addEventListener('resize', onResize)
-		return () => window.removeEventListener('resize', onResize)
+		const el = screenRef.current
+		if (!el) return
+		const ro = new ResizeObserver(() => applyView(view.current))
+		ro.observe(el)
+		return () => ro.disconnect()
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [])
+	// Phones: keep the console exactly the size of the visible area, so the on-screen keyboard
+	// shrinks the picture instead of covering it, and nothing is left behind when it closes.
+	// iOS doesn't always send a resize when the keyboard goes away, so check again while it animates.
+	useEffect(() => {
+		if (deskUi || embedded) return
+		const vv = window.visualViewport
+		const root = rootRef.current
+		if (!vv || !root) return
+		let timers: number[] = []
+		const sync = () => {
+			const full = Math.abs(window.innerHeight - vv.height) < 2 && vv.offsetTop < 1
+			if (full) {
+				root.style.top = ''
+				root.style.height = ''
+				if (window.scrollY !== 0 || document.documentElement.scrollTop !== 0) window.scrollTo(0, 0)
+			} else {
+				root.style.top = `${vv.offsetTop}px`
+				root.style.height = `${vv.height}px`
+			}
+		}
+		const settle = () => {
+			sync()
+			timers.forEach(window.clearTimeout)
+			timers = [60, 180, 350, 600, 1000].map((ms) => window.setTimeout(sync, ms))
+		}
+		vv.addEventListener('resize', settle)
+		vv.addEventListener('scroll', sync)
+		window.addEventListener('orientationchange', settle)
+		root.addEventListener('focusin', settle)
+		root.addEventListener('focusout', settle)
+		sync()
+		return () => {
+			timers.forEach(window.clearTimeout)
+			vv.removeEventListener('resize', settle)
+			vv.removeEventListener('scroll', sync)
+			window.removeEventListener('orientationchange', settle)
+			root.removeEventListener('focusin', settle)
+			root.removeEventListener('focusout', settle)
+			root.style.top = ''
+			root.style.height = ''
+			window.scrollTo(0, 0)
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [deskUi, embedded])
 
 	// ---- sending input -----------------------------------------------------------
 	const send = (p: Pt, m: number) => {

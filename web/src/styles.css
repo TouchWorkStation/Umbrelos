@@ -5827,3 +5827,6 @@ html:not(.desk-mode) .upload-panel {
 [data-theme='omarchy'] .title { letter-spacing: -0.03em; }
 [data-theme='omarchy'] .win { background: #1a1b26 !important; }
 [data-theme='omarchy'] .win-bar { background: #16161e; }
+/* Phone console: sized to the visible area by script while the keyboard is up. */
+.console:not(.desk-ui):not(.embedded) { bottom: auto; height: 100%; height: 100dvh; }
+.console:not(.desk-ui):not(.embedded) .console-input { bottom: auto; top: 0; }
