@@ -656,3 +656,41 @@ export function watchKeyboardViewport() {
 		if (t && /^(INPUT|TEXTAREA)$/.test(t.tagName)) settleViewport()
 	})
 }
+
+// ---- iOS home-screen app: bottom gap ------------------------------------------------------------
+// In a standalone web app with a translucent status bar, iOS 26 sometimes lays out fixed elements as
+// if the screen were a status bar shorter, leaving a strip under the dock until something scrolls.
+// A hidden marker pinned to bottom: 0 shows where iOS thinks the bottom is; the difference from the
+// real screen height goes into --ios-gap, which bottom-anchored elements add back. When iOS gets it
+// right the gap is 0 and nothing moves.
+export function watchStandaloneGap() {
+	const ios = /iP(hone|ad|od)/.test(navigator.platform) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+	const standalone = (navigator as Navigator & {standalone?: boolean}).standalone === true || matchMedia('(display-mode: standalone)').matches
+	if (!ios || !standalone) return
+	const probe = document.createElement('div')
+	probe.setAttribute('aria-hidden', 'true')
+	probe.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;visibility:hidden;pointer-events:none'
+	document.body.appendChild(probe)
+	const root = document.documentElement
+	let last = -1
+	const measure = () => {
+		const vv = window.visualViewport
+		const keyboard = !!vv && window.innerHeight - vv.height > 80
+		const portrait = window.innerHeight >= window.innerWidth
+		const screenH = portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width)
+		const gap = keyboard || root.classList.contains('desk-mode') ? 0 : Math.round(screenH - probe.getBoundingClientRect().bottom)
+		const value = gap > 0 && gap <= 120 ? gap : 0
+		if (value !== last) {
+			last = value
+			root.style.setProperty('--ios-gap', `${value}px`)
+		}
+	}
+	measure()
+	for (const ms of [100, 300, 700, 1500, 3000]) window.setTimeout(measure, ms)
+	window.addEventListener('resize', measure)
+	window.addEventListener('orientationchange', () => window.setTimeout(measure, 300))
+	window.visualViewport?.addEventListener('resize', () => window.setTimeout(measure, 50))
+	window.addEventListener('scroll', measure, {passive: true})
+	document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && window.setTimeout(measure, 100))
+	document.addEventListener('focusout', () => [120, 450, 900].forEach((ms) => window.setTimeout(measure, ms)))
+}

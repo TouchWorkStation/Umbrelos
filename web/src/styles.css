@@ -5828,5 +5828,17 @@ html:not(.desk-mode) .upload-panel {
 [data-theme='omarchy'] .win { background: #1a1b26 !important; }
 [data-theme='omarchy'] .win-bar { background: #16161e; }
 /* Phone console: sized to the visible area by script while the keyboard is up. */
-.console:not(.desk-ui):not(.embedded) { bottom: auto; height: 100%; height: 100dvh; }
+.console:not(.desk-ui):not(.embedded) { bottom: calc(0px - var(--ios-gap, 0px)); }
 .console:not(.desk-ui):not(.embedded) .console-input { bottom: auto; top: 0; }
+
+/* iOS home-screen app: push bottom-anchored layers down by the gap iOS sometimes leaves (see watchStandaloneGap). */
+.backdrop,
+.scrim,
+.menu-scrim,
+.ct-scrim,
+.fv { bottom: calc(0px - var(--ios-gap, 0px)); }
+.sheet { bottom: calc(0px - var(--ios-gap, 0px)); }
+.dock { bottom: calc(var(--safe-b) + 12px - var(--ios-gap, 0px)); }
+.fab { bottom: calc(var(--safe-b) + var(--dock-h) + 26px - var(--ios-gap, 0px)); }
+.select-bar { bottom: calc(var(--safe-b) + var(--dock-h) + 22px - var(--ios-gap, 0px)); }
+html:not(.desk-mode) .upload-panel { bottom: calc(var(--safe-b) + var(--dock-h) + 22px - var(--ios-gap, 0px)); }
