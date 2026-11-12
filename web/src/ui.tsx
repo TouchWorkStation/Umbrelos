@@ -385,6 +385,7 @@ export const THEMES = [
 	{id: 'tokyo', name: 'Neon', bg: '#1a1b26', fg: '#c0caf5', dots: ['#7aa2f7', '#9ece6a', '#e0af68', '#f7768e']},
 	{id: 'gruvbox', name: 'Ember', bg: '#282828', fg: '#ebdbb2', dots: ['#83a598', '#b8bb26', '#fabd2f', '#fb4934']},
 	{id: 'latte', name: 'Daylight', bg: '#eff1f5', fg: '#4c4f69', dots: ['#1e66f5', '#40a02b', '#df8e1d', '#d20f39']},
+	{id: 'omarchy', name: 'Omarchy', bg: '#1a1b26', fg: '#a9b1d6', dots: ['#7aa2f7', '#9ece6a', '#e0af68', '#f7768e']},
 ] as const
 export const ACCENTS = ['wallpaper', 'blue', 'mauve', 'teal', 'peach', 'green', 'pink'] as const
 export type ThemeId = (typeof THEMES)[number]['id']
@@ -415,7 +416,11 @@ export function applyPrefs(p: Prefs, brandHsl?: string | null) {
 	const root = document.documentElement
 	root.dataset.theme = p.theme
 	const light = p.theme === 'latte'
-	if (p.accent === 'wallpaper') {
+	if (p.accent === 'wallpaper' && p.theme === 'omarchy') {
+		root.style.setProperty('--accent', '#7aa2f7')
+		root.style.setProperty('--accent-text', '#7aa2f7')
+		root.style.setProperty('--on-accent', '#1a1b26')
+	} else if (p.accent === 'wallpaper') {
 		const source = p.theme === 'custom' ? (p.customBrandHsl ?? brandHsl) : brandHsl
 		const [h, s, l] = (source ?? FALLBACK_BRAND).split(' ').map((v) => parseFloat(v))
 		root.style.setProperty('--accent', `hsl(${h} ${s}% ${l}%)`)

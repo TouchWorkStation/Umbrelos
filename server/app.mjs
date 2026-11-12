@@ -19,7 +19,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.13.0'
+export const VERSION = '0.13.1'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -510,7 +510,7 @@ export function createApp({store, staticDir, fetchImpl = fetch, secureCookies = 
 	})
 
 	// ---- Saved appearance (per umbrelOS account, shared by all its phones) -------
-	const THEME_IDS = ['umbrel', 'mocha', 'tokyo', 'gruvbox', 'latte', 'custom']
+	const THEME_IDS = ['umbrel', 'mocha', 'tokyo', 'gruvbox', 'latte', 'custom', 'omarchy']
 	const ACCENT_IDS = ['wallpaper', 'blue', 'mauve', 'teal', 'peach', 'green', 'pink']
 	const HSL = /^\d{1,3}(\.\d+)? \d{1,3}(\.\d+)?% \d{1,3}(\.\d+)?%$/
 	const accountKey = (accountId) => hashId(`account:${accountId}`).slice(0, 32)
