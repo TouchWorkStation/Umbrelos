@@ -138,7 +138,10 @@ export type Machine = {
 	state: 'installing' | 'stopped' | 'starting' | 'running' | 'stopping' | 'restarting' | 'suspended' | 'error'
 	installProgress?: number
 	errorMessage?: string
+	networkMode?: 'nat' | 'bridged'
+	portForwards?: PortForward[]
 }
+export type PortForward = {id: string; protocol: 'tcp' | 'udp'; hostPort: number; guestPort: number}
 
 export type InstallReview = {
 	requiredFolders: {id: string; name: string; note: string | null; defaultSourcePath: string; readOnly: boolean}[]

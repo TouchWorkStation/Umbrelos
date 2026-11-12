@@ -4,6 +4,15 @@ export type Release = {version: string; date: string; title: string; added?: str
 
 export const CHANGELOG: Release[] = [
 	{
+		version: '0.16.0',
+		date: '2026-11-12',
+		title: 'Port forwarding for machines',
+		added: [
+			'Machines → a machine → Port forwarding: reach a service inside a machine from your other devices, through a port on your Umbrel (40000–49999).',
+			'One-tap presets for Omarchy Server, SSH and a web server.',
+		],
+	},
+	{
 		version: '0.15.2',
 		date: '2026-11-12',
 		title: 'Machine console keyboard',

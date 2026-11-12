@@ -5944,3 +5944,28 @@ html:not(.desk-mode) .upload-panel { bottom: calc(var(--safe-b) + var(--dock-h) 
 	-webkit-touch-callout: default;
 	-webkit-tap-highlight-color: transparent;
 }
+
+/* Machines: port forwarding */
+.pf { margin: 6px 0 14px; }
+.pf-note { font-size: 13px; margin: 0 4px 10px; line-height: 1.4; }
+.pf .group { margin-bottom: 10px; }
+.pf .row .main .mono { font-family: var(--mono); font-size: 14px; }
+.pf .row .btn.small { flex: none; }
+.pf-add { border-radius: 18px; padding: 14px; display: grid; gap: 12px; }
+.pf-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+.pf-fields { display: grid; grid-template-columns: 1fr auto 1fr 84px; gap: 8px; align-items: end; }
+.pf-fields label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.pf-fields .field {
+	height: 42px;
+	padding: 0 12px;
+	border-radius: 12px;
+	border: 1px solid var(--line-2);
+	background: var(--glass-2);
+	color: var(--fg);
+	font: inherit;
+	font-size: 16px;
+	min-width: 0;
+	width: 100%;
+}
+.pf-arrow { padding-bottom: 10px; color: var(--muted); }
+.pf-actions { display: flex; justify-content: flex-end; gap: 8px; }

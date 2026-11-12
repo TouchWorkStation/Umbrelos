@@ -331,6 +331,18 @@ export async function startFakeUmbreld({
 			},
 		},
 		'machines.list': {kind: 'query', run: () => machines},
+		'machines.updateSettings': {
+			kind: 'mutation',
+			run: fsOp(({id, portForwards}) => {
+				const m = machines.find((x) => x.id === id)
+				if (!m) throw ['NOT_FOUND', '[machine-not-found]']
+				if (portForwards) {
+					if (portForwards.some((f) => f.hostPort < 40000 || f.hostPort > 49999)) throw ['BAD_REQUEST', '[machine-port-out-of-range]']
+					m.portForwards = portForwards
+				}
+				return true
+			}),
+		},
 		'system.checkUpdate': {kind: 'query', run: () => (process.env.FAKE_UPDATE_FAIL ? {available: true, version: '2.1.0', name: 'umbrelOS 2.1'} : {available: false, version: '2.0.0', name: 'umbrelOS 2.0'})},
 		'apps.uninstall': {kind: 'mutation', run: ({appId}) => (apps.splice(apps.findIndex((a) => a.id === appId), 1), true)},
 		'machines.start': {kind: 'mutation', run: ({id}) => ((machines.find((m) => m.id === id).state = 'running'), true)},
