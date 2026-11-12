@@ -16,6 +16,7 @@ import {Store} from './screens/Store'
 import {TerminalScreen} from './Terminal'
 import {Desktop} from './desktop/Desktop'
 import {Backdrop, Sheet, SheetHeader, haptic, useLayout, usePrefs, type Prefs} from './ui'
+import {WhatsNewOnUpdate} from './WhatsNew'
 
 type Tab = 'home' | 'apps' | 'files' | 'machines' | 'more' | 'settings' | 'store'
 const TABS: {id: Tab; label: string; icon: IconName; active: IconName}[] = [
@@ -76,6 +77,7 @@ export function App() {
 		content = (
 			<BootstrapContext.Provider value={b}>
 				{layout.desktop ? <Desktop boot={b} prefs={prefs} setPrefs={setPrefs} onSignedOut={refresh} /> : <Shell boot={b} prefs={prefs} setPrefs={setPrefs} onSignedOut={refresh} />}
+				<WhatsNewOnUpdate version={b.touch.version} />
 			</BootstrapContext.Provider>
 		)
 

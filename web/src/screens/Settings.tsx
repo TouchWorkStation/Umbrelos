@@ -8,6 +8,7 @@ import {Icon, type IconName} from '../icons'
 import {InWindow, Segmented, Sheet, SheetHeader, haptic, initials, setLayoutPref, useConfirm, useLayout, useToast, wallpaperUrl, type LayoutPref, type Prefs} from '../ui'
 import {Appearance} from './More'
 import {StoragePage} from './Storage'
+import {WhatsNewSheet, allReleases} from '../WhatsNew'
 
 const WALLPAPER_IDS = Array.from({length: 25}, (_, i) => String(i + 1))
 
@@ -150,7 +151,6 @@ type SheetId = null | 'name' | 'password' | '2fa' | 'wallpaper' | 'hostname' | '
 export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; setPrefs: (p: Prefs) => void; onBack: () => void; onSignedOut: () => void}) {
 	const boot = useBootstrap()
 	const user = useUser()
-	const toast = useToast()
 	const confirm = useConfirm()
 	const save = useSave()
 	const qc = useQueryClient()
@@ -172,6 +172,8 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 	const sessions = useQ<ActiveSession[]>('user.listSessions')
 	const check = useQ<{available: boolean; version: string; name: string; releaseNotes?: string}>('system.checkUpdate', undefined, {enabled: owner})
 	const [updating, setUpdating] = useState(false)
+	const [updateError, setUpdateError] = useState<string | null>(null)
+	const [notes, setNotes] = useState(false)
 	const status = useQ<{running: boolean; progress: number; description: string; error: boolean | string}>('system.updateStatus', undefined, {
 		enabled: owner && updating,
 		refetchInterval: updating ? 1500 : false,
@@ -192,6 +194,7 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 			icon: 'update',
 		})
 		if (!ok) return
+		setUpdateError(null)
 		setUpdating(true)
 		mutate('system.update').catch(() => {
 			/* the server restarts mid-request; progress comes from updateStatus */
@@ -199,10 +202,10 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 	}
 	useEffect(() => {
 		if (status.data?.error) {
-			toast(typeof status.data.error === 'string' ? status.data.error : 'The update failed', true)
+			setUpdateError(typeof status.data.error === 'string' ? status.data.error : 'The update failed')
 			setUpdating(false)
 		}
-	}, [status.data?.error, toast])
+	}, [status.data?.error])
 
 	const revoke = async (s: ActiveSession) => {
 		const d = describeSession(s)
@@ -328,7 +331,23 @@ export function Settings({prefs, setPrefs, onBack, onSignedOut}: {prefs: Prefs; 
 
 			{owner && (
 				<Group title="Software update">
+					<Row icon="sparkle" color="var(--pink)" label="Touch" value={`${boot.touch.version} · What’s new`} onClick={() => setNotes(true)} />
+					{notes && <WhatsNewSheet releases={allReleases(boot.touch.version)} version={boot.touch.version} onClose={() => setNotes(false)} />}
 					<Row icon="server" color="var(--blue)" label="umbrelOS" value={boot.umbrel?.version} />
+					{updateError && !updating && (
+						<div className="row static update-error" role="alert">
+							<span className="row-ico" style={{'--c': 'var(--red)'} as CSSProperties}>
+								<Icon name="alert" size={19} />
+							</span>
+							<span className="main">
+								<b style={{fontWeight: 600}}>The update didn’t install</b>
+								<span>{updateError}</span>
+							</span>
+							<button className="btn small" onClick={() => (check.refetch(), startUpdate())}>
+								Try again
+							</button>
+						</div>
+					)}
 					{updating ? (
 						<div className="row static" style={{flexDirection: 'column', alignItems: 'stretch', gap: 10, minHeight: 80}}>
 							<span style={{display: 'flex', justifyContent: 'space-between', fontSize: 14.5}}>

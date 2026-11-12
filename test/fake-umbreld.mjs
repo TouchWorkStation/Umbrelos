@@ -48,6 +48,7 @@ export async function startFakeUmbreld({
 		['/Trash', {type: 'directory'}],
 		['/Trash/old-notes.txt', {type: 'text/plain', data: Buffer.from('old')}],
 	])
+	let updateStatus = {running: false, progress: 0, description: '', error: false}
 	const OFFICIAL_STORE = 'https://github.com/getumbrel/umbrel-apps.git'
 	const communityStores = []
 	// Optional real sample files (FAKE_SAMPLES_DIR) for exercising the file viewer.
@@ -329,7 +330,7 @@ export async function startFakeUmbreld({
 			},
 		},
 		'machines.list': {kind: 'query', run: () => machines},
-		'system.checkUpdate': {kind: 'query', run: () => ({available: false, version: '2.0.0', name: 'umbrelOS 2.0'})},
+		'system.checkUpdate': {kind: 'query', run: () => (process.env.FAKE_UPDATE_FAIL ? {available: true, version: '2.1.0', name: 'umbrelOS 2.1'} : {available: false, version: '2.0.0', name: 'umbrelOS 2.0'})},
 		'apps.uninstall': {kind: 'mutation', run: ({appId}) => (apps.splice(apps.findIndex((a) => a.id === appId), 1), true)},
 		'machines.start': {kind: 'mutation', run: ({id}) => ((machines.find((m) => m.id === id).state = 'running'), true)},
 		'notifications.get': {kind: 'query', run: () => notifications},
@@ -372,8 +373,17 @@ export async function startFakeUmbreld({
 		},
 		'user.revokeSession': {kind: 'mutation', run: () => ({revokedCurrent: false})},
 		'user.revokeOtherSessions': {kind: 'mutation', run: () => ({revokedCount: 1})},
-		'system.updateStatus': {kind: 'query', run: () => ({running: false, progress: 0, description: '', error: false})},
-		'system.update': {kind: 'mutation', run: () => true},
+		'system.updateStatus': {kind: 'query', run: () => updateStatus},
+		'system.update': {
+			kind: 'mutation',
+			run: () => {
+				// FAKE_UPDATE_FAIL: fail the way umbreld reports it, through the status.
+				updateStatus = process.env.FAKE_UPDATE_FAIL
+					? {running: false, progress: 0, description: '', error: "umbrelOS 2.1.0 doesn't include an update for this device"}
+					: {running: true, progress: 40, description: 'Downloading update', error: false}
+				return !process.env.FAKE_UPDATE_FAIL
+			},
+		},
 		'system.getReleaseChannel': {kind: 'query', run: () => settings.channel},
 		'system.setReleaseChannel': {kind: 'mutation', run: ({channel}) => ((settings.channel = channel), true)},
 		'system.getHostname': {kind: 'query', run: () => settings.hostname},
@@ -595,7 +605,7 @@ export async function startFakeUmbreld({
 		}
 		const out = proc.run(input, auth, res, req)
 		if (out?.notFound) return fail('NOT_FOUND', `No procedure found on path "${path}"`)
-		if (out?.error) return fail(...out.error)
+		if (Array.isArray(out?.error)) return fail(...out.error)
 		send(200, {result: {data: out}})
 	})
 
