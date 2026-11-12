@@ -4,6 +4,13 @@ export type Release = {version: string; date: string; title: string; added?: str
 
 export const CHANGELOG: Release[] = [
 	{
+		version: '0.15.1',
+		date: '2026-11-12',
+		title: 'Always the latest',
+		added: ['The App Store has a Stores button (top right) for community app stores, such as TouchWorkStation’s browsers.'],
+		fixed: ['The home-screen app reloads itself when Touch on your Umbrel has been updated, instead of running the old version until you force-quit it.'],
+	},
+	{
 		version: '0.15.0',
 		date: '2026-11-12',
 		title: 'What’s new, every time',

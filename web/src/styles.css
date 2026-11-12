@@ -5894,3 +5894,17 @@ html:not(.desk-mode) .upload-panel { bottom: calc(var(--safe-b) + var(--dock-h) 
 .whats-new .btn.block { margin-top: 6px; }
 .update-error .main span,
 .update-error .main b { white-space: normal !important; }
+.stores-btn { gap: 6px; flex: none; }
+.store-add .field {
+	height: 44px;
+	padding: 0 14px;
+	border-radius: 14px;
+	border: 1px solid var(--line-2);
+	background: var(--glass-2);
+	color: var(--fg);
+	font: inherit;
+	font-size: 15px;
+	outline: none;
+}
+.store-add .field:focus { border-color: var(--accent); }
+.store-add .field::placeholder { color: var(--muted); }

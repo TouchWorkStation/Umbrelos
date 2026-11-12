@@ -101,8 +101,9 @@ export function Store({onOpenInstalled, onBack}: {onOpenInstalled: (app: UserApp
 					<h1 className="title">App Store</h1>
 					<p className="subtitle">{registry.isLoading ? 'Loading the catalog…' : `${all.length} apps for your Umbrel`}</p>
 				</div>
-				<button className="round-btn" style={{marginLeft: 'auto'}} aria-label="Community app stores" title="Community app stores" onClick={() => (haptic(5), setStores(true))}>
-					<Icon name="dots" size={20} />
+				<button className="btn small stores-btn" style={{marginLeft: 'auto'}} aria-label="Community app stores" title="Community app stores" onClick={() => (haptic(5), setStores(true))}>
+					<Icon name="store" size={17} />
+					Stores
 				</button>
 			</div>
 			<SearchField value={q} onChange={setQ} placeholder="Search apps" />
