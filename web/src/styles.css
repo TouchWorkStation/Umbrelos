@@ -5842,3 +5842,25 @@ html:not(.desk-mode) .upload-panel {
 .fab { bottom: calc(var(--safe-b) + var(--dock-h) + 26px - var(--ios-gap, 0px)); }
 .select-bar { bottom: calc(var(--safe-b) + var(--dock-h) + 22px - var(--ios-gap, 0px)); }
 html:not(.desk-mode) .upload-panel { bottom: calc(var(--safe-b) + var(--dock-h) + 22px - var(--ios-gap, 0px)); }
+
+/* App Store: community stores sheet */
+.list-head {
+	margin: 18px 4px 8px;
+	font-size: 12px;
+	font-weight: 650;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+.sheet-icon {
+	width: 56px;
+	height: 56px;
+	border-radius: 16px;
+	display: grid;
+	place-items: center;
+	color: var(--on-accent, #fff);
+	flex: none;
+}
+.store-add { display: flex; gap: 8px; }
+.store-add .field { flex: 1; min-width: 0; }
+.row .main .mono { font-family: var(--mono); }

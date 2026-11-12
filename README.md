@@ -191,6 +191,7 @@ The procedure names and data shapes come from getumbrel/umbrel at the umbrelOS 2
 ## Not yet
 
 - A dedicated Photos timeline (photos browse fine in Files).
+- Community app stores: add or remove them from App Store → ⋯. The [TouchWorkStation store](https://github.com/TouchWorkStation/umbrel-app-store) is one tap and adds Google Chrome and Brave browsers that run on your Umbrel.
 - Compressing into archives, editing Office documents and PDFs, and connecting new network shares from other machines (use the umbrelOS dashboard).
 - VM audio.
 - Settings that change the system (users, Wi-Fi, backups). These are deliberately left out of the allowlist for now.

@@ -19,7 +19,7 @@ import WebSocket, {WebSocketServer} from 'ws'
 import {createUmbrelClient, UmbrelError} from './umbrel.mjs'
 import {hashId, newSessionId} from './store.mjs'
 
-export const VERSION = '0.13.4'
+export const VERSION = '0.14.0'
 const COOKIE = 'umbrel_touch_sid'
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 365
 const REFRESH_MARGIN_MS = 2 * 60 * 1000
@@ -46,6 +46,7 @@ export const ALLOWED = {
 	'apps.logs': 'query',
 	'apps.installReview': 'query',
 	'appStore.registry': 'query',
+	'appStore.repositories': 'query',
 	'machines.list': 'query',
 	'notifications.get': 'query',
 	'apps.start': 'mutation',
@@ -53,6 +54,8 @@ export const ALLOWED = {
 	'apps.restart': 'mutation',
 	'apps.update': 'mutation',
 	'apps.install': 'mutation',
+	'appStore.addRepository': 'mutation',
+	'appStore.removeRepository': 'mutation',
 	'apps.uninstall': 'mutation',
 	'apps.trackOpen': 'mutation',
 	'machines.start': 'mutation',
@@ -135,7 +138,7 @@ export const ALLOWED = {
 }
 
 // Long-running mutations: umbreld answers when the operation finishes.
-const SLOW = new Set(['files.copy', 'files.unarchive', 'files.getThumbnail', 'files.move', 'files.delete', 'files.emptyTrash', 'files.search', 'files.list', 'apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname', 'hardware.internalStorage.getDevices', 'hardware.raid.addDevice', 'hardware.raid.addMirror', 'hardware.raid.addAccelerator', 'hardware.raid.replaceDevice', 'hardware.raid.transitionToFailsafeRaidz'])
+const SLOW = new Set(['files.copy', 'files.unarchive', 'files.getThumbnail', 'files.move', 'files.delete', 'files.emptyTrash', 'files.search', 'files.list', 'apps.install', 'apps.update', 'apps.uninstall', 'appStore.registry', 'appStore.addRepository', 'apps.logs', 'system.update', 'system.logs', 'machines.create', 'machines.uninstall', 'wifi.connect', 'wifi.networks', 'system.setHostname', 'hardware.internalStorage.getDevices', 'hardware.raid.addDevice', 'hardware.raid.addMirror', 'hardware.raid.addAccelerator', 'hardware.raid.replaceDevice', 'hardware.raid.transitionToFailsafeRaidz'])
 
 function parseCookies(header = '') {
 	const out = {}

@@ -101,7 +101,7 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		assert.match(r.setCookie, /HttpOnly/)
 		assert.match(r.setCookie, /SameSite=Strict/)
 		const login = fake.calls.findLast((c) => c.path === 'user.loginNative')
-		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.13.4', appBuild: '1', osVersion: 'web'})
+		assert.deepEqual(login.input.client, {id: 'umbrel-touch', platform: 'ios', deviceClass: 'phone', appVersion: '0.14.0', appBuild: '1', osVersion: 'web'})
 		const saved = await readFile(join(touch.dir, 'sessions.json'), 'utf8')
 		assert.ok(!saved.includes(touch.getCookie().split('=')[1]), 'cookie value must not be stored in plain form')
 		assert.equal((await stat(join(touch.dir, 'sessions.json'))).mode & 0o777, 0o600)
@@ -250,6 +250,20 @@ describe('UmbrelOS Touch server against an umbreld 2.0 stand-in', () => {
 		const mv = await touch.req('POST', '/api/rpc/files.move', {input: {path: '/Home/Documents/hello.txt', toDirectory: '/Home/Downloads'}})
 		assert.equal(mv.status, 200)
 		assert.ok(fake.fsTree.has('/Home/Downloads/hello.txt'))
+	})
+
+	test('community app stores can be listed, added and removed', async () => {
+		const url = 'https://github.com/TouchWorkStation/umbrel-app-store'
+		const add = await touch.req('POST', '/api/rpc/appStore.addRepository', {input: {url}})
+		assert.equal(add.status, 200)
+		const list = await touch.req('GET', '/api/rpc/appStore.repositories')
+		assert.ok(list.body.data.some((r) => r.url === url && r.meta.id === 'touchworkstation'))
+		const reg = await touch.req('GET', '/api/rpc/appStore.registry')
+		assert.ok(reg.body.data.some((r) => r.apps.some((a) => a.id === 'touchworkstation-chrome')))
+		const dup = await touch.req('POST', '/api/rpc/appStore.addRepository', {input: {url}})
+		assert.notEqual(dup.status, 200)
+		const rm = await touch.req('POST', '/api/rpc/appStore.removeRepository', {input: {url}})
+		assert.equal(rm.status, 200)
 	})
 
 	test('file viewer: saves edits in place, extracts archives, asks for renditions', async () => {

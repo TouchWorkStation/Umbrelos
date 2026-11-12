@@ -48,6 +48,8 @@ export async function startFakeUmbreld({
 		['/Trash', {type: 'directory'}],
 		['/Trash/old-notes.txt', {type: 'text/plain', data: Buffer.from('old')}],
 	])
+	const OFFICIAL_STORE = 'https://github.com/getumbrel/umbrel-apps.git'
+	const communityStores = []
 	// Optional real sample files (FAKE_SAMPLES_DIR) for exercising the file viewer.
 	const MIME = {pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', csv: 'text/csv', md: 'text/markdown', json: 'application/json', txt: 'text/plain', py: 'text/x-python', zip: 'application/zip', mp3: 'audio/mpeg', mp4: 'video/mp4', jpg: 'image/jpeg', png: 'image/png', svg: 'image/svg+xml', ttf: 'font/ttf', key: 'application/vnd.apple.keynote', heic: 'image/heic', iso: 'application/x-iso9660-image', gz: 'application/gzip'}
 	const typeFor = (name) => MIME[name.split('.').pop().toLowerCase()] ?? 'application/octet-stream'
@@ -271,7 +273,7 @@ export async function startFakeUmbreld({
 					id, name, category, tagline, version: '1.0.0', icon: '', developer: `${name} team`, gallery, dependencies: [],
 					description: `${name} on your Umbrel. ${tagline}.`, installSize: 250e6, compatible: true, ...extra,
 				})
-				return [{meta: {id: 'umbrel-app-store', name: 'Umbrel App Store'}, apps: [
+				return [{url: OFFICIAL_STORE, meta: {id: 'umbrel-app-store', name: 'Umbrel App Store'}, apps: [
 					app('immich', 'Immich', 'files', 'Your photos and videos, on your terms', [shot(5), shot(9)]),
 					app('nextcloud', 'Nextcloud', 'files', 'Productivity platform that keeps you in control', [shot(12)]),
 					app('vaultwarden', 'Vaultwarden', 'files', 'Unofficial Bitwarden-compatible password manager'),
@@ -284,8 +286,39 @@ export async function startFakeUmbreld({
 					app('bitcoin', 'Bitcoin Node', 'bitcoin', 'Run your own Bitcoin node', [shot(3)]),
 					app('pi-hole', 'Pi-hole', 'networking', 'Block ads across your whole network'),
 					app('tailscale', 'Tailscale', 'networking', 'Zero-config VPN for your devices'),
-				]}]
+				]}, ...communityStores.map((r) => ({...r, apps: r.apps.map((a) => app(...a))}))]
 			},
+		},
+		'appStore.repositories': {kind: 'query', run: () => [{url: OFFICIAL_STORE, meta: {id: 'umbrel-app-store', name: 'Umbrel App Store'}}, ...communityStores.map(({url, meta}) => ({url, meta}))]},
+		'appStore.addRepository': {
+			kind: 'mutation',
+			run: fsOp(({url}) => {
+				if (url === OFFICIAL_STORE || communityStores.some((r) => r.url === url)) throw ['BAD_REQUEST', `Repository ${url} already exists`]
+				if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\.git)?$/.test(url)) throw ['INTERNAL_SERVER_ERROR', `Failed to clone ${url}`]
+				const tws = /touchworkstation\/umbrel-app-store/i.test(url)
+				communityStores.push({
+					url,
+					meta: tws ? {id: 'touchworkstation', name: 'TouchWorkStation'} : {id: 'community', name: 'Community'},
+					apps: tws
+						? [
+								['touchworkstation-chrome', 'Google Chrome', 'networking', 'Google Chrome, running on your Umbrel and streamed to any device'],
+								['touchworkstation-brave', 'Brave', 'networking', 'Brave, running on your Umbrel and streamed to any device'],
+								['touchworkstation-brave-secure', 'Brave (HTTPS)', 'networking', 'Brave on your Umbrel, for use through HTTPS and Cloudflare tunnels'],
+							]
+						: [],
+				})
+				return true
+			}),
+		},
+		'appStore.removeRepository': {
+			kind: 'mutation',
+			run: fsOp(({url}) => {
+				if (url === OFFICIAL_STORE) throw ['BAD_REQUEST', 'Cannot remove default repository']
+				const i = communityStores.findIndex((r) => r.url === url)
+				if (i < 0) throw ['BAD_REQUEST', `Repository ${url} does not exist`]
+				communityStores.splice(i, 1)
+				return true
+			}),
 		},
 		'apps.installReview': {kind: 'query', run: () => ({requiredFolders: [], gpuAccess: false})},
 		'apps.install': {

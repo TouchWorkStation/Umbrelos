@@ -1,9 +1,10 @@
-import {useMemo, useState} from 'react'
+import {useMemo, useState, type CSSProperties} from 'react'
+import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 
-import type {RegistryApp, UserApp} from '../api'
+import {mutate, query, type RegistryApp, type UserApp} from '../api'
 import {appUrl, useAction, useApps, useBootstrap, useInstallReview, useRegistry} from '../data'
 import {Icon, hasIcon} from '../icons'
-import {AppIcon, Sheet, SheetHeader, StatusPill, appStatus, bytes, haptic, isAppBusy} from '../ui'
+import {AppIcon, Sheet, SheetHeader, StatusPill, appStatus, bytes, haptic, isAppBusy, useToast} from '../ui'
 import {SearchField} from './Apps'
 
 type StoreApp = RegistryApp & {compatible?: boolean; repo?: string}
@@ -33,6 +34,7 @@ export function Store({onOpenInstalled, onBack}: {onOpenInstalled: (app: UserApp
 	const [q, setQ] = useState('')
 	const [category, setCategory] = useState('all')
 	const [selected, setSelected] = useState<{app: StoreApp; install?: boolean} | null>(null)
+	const [stores, setStores] = useState(false)
 
 	const all = useMemo(() => {
 		const seen = new Map<string, StoreApp>()
@@ -99,6 +101,9 @@ export function Store({onOpenInstalled, onBack}: {onOpenInstalled: (app: UserApp
 					<h1 className="title">App Store</h1>
 					<p className="subtitle">{registry.isLoading ? 'Loading the catalog…' : `${all.length} apps for your Umbrel`}</p>
 				</div>
+				<button className="round-btn" style={{marginLeft: 'auto'}} aria-label="Community app stores" title="Community app stores" onClick={() => (haptic(5), setStores(true))}>
+					<Icon name="dots" size={20} />
+				</button>
 			</div>
 			<SearchField value={q} onChange={setQ} placeholder="Search apps" />
 			<div className="chips" role="tablist" aria-label="Categories">
@@ -188,6 +193,8 @@ export function Store({onOpenInstalled, onBack}: {onOpenInstalled: (app: UserApp
 						</div>
 					)}
 
+			{stores && <CommunityStores onClose={() => setStores(false)} />}
+
 			{selected && (
 				<StoreSheet
 					key={selected.app.id}
@@ -200,6 +207,149 @@ export function Store({onOpenInstalled, onBack}: {onOpenInstalled: (app: UserApp
 				/>
 			)}
 		</div>
+	)
+}
+
+// ---- community app stores ------------------------------------------------------------------------
+const OFFICIAL_STORE = 'https://github.com/getumbrel/umbrel-apps.git'
+const SUGGESTED_STORES = [
+	{
+		url: 'https://github.com/TouchWorkStation/umbrel-app-store',
+		name: 'TouchWorkStation',
+		blurb: 'Google Chrome and Brave browsers that run on your Umbrel and stream to any device.',
+	},
+]
+type Repo = {url: string; meta: {id: string; name: string}}
+const sameRepo = (a: string, b: string) => a.replace(/\.git$|\/$/, '').toLowerCase() === b.replace(/\.git$|\/$/, '').toLowerCase()
+
+function CommunityStores({onClose}: {onClose: () => void}) {
+	const qc = useQueryClient()
+	const toast = useToast()
+	const repos = useQuery({queryKey: ['appStore.repositories'], queryFn: () => query<Repo[]>('appStore.repositories')})
+	const [url, setUrl] = useState('')
+	const [removing, setRemoving] = useState<string | null>(null)
+	const refresh = () => {
+		qc.invalidateQueries({queryKey: ['appStore.repositories']})
+		qc.invalidateQueries({queryKey: ['appStore.registry']})
+	}
+	const add = useMutation({
+		mutationFn: (u: string) => mutate('appStore.addRepository', {url: u}),
+		onSuccess: () => {
+			toast('Store added. Its apps are now in the App Store.')
+			setUrl('')
+			refresh()
+		},
+		onError: (e) => toast((e as Error).message, true),
+	})
+	const remove = useMutation({
+		mutationFn: (u: string) => mutate('appStore.removeRepository', {url: u}),
+		onSuccess: () => {
+			toast('Store removed')
+			setRemoving(null)
+			refresh()
+		},
+		onError: (e) => toast((e as Error).message, true),
+	})
+	const community = (repos.data ?? []).filter((r) => !sameRepo(r.url, OFFICIAL_STORE))
+	const suggestions = SUGGESTED_STORES.filter((s) => !(repos.data ?? []).some((r) => sameRepo(r.url, s.url)))
+	const valid = /^https:\/\/[\w.-]+\/[\w.\-/]+$/.test(url.trim())
+	return (
+		<Sheet open onClose={onClose} label="Community app stores">
+			<SheetHeader
+				icon={
+					<span className="sheet-icon" style={{background: 'var(--accent)'}}>
+						<Icon name="store" size={28} />
+					</span>
+				}
+				title="Community stores"
+				subtitle="Extra app catalogs from other developers"
+				onClose={onClose}
+			/>
+			<div className="screen">
+				<p className="prose" style={{margin: '0 0 14px'}}>
+					Community stores aren’t reviewed by the Umbrel team. Their apps run on your Umbrel like any other app, so only add stores from developers you trust.
+				</p>
+				{repos.isLoading && (
+					<div className="glass card" style={{display: 'flex', gap: 12, alignItems: 'center', borderRadius: 18}}>
+						<span className="spinner" /> Loading your stores…
+					</div>
+				)}
+				{community.length > 0 && (
+					<>
+						<h4 className="list-head">Added</h4>
+						<div className="glass group">
+							{community.map((r) => (
+								<div key={r.url} className="row static">
+									<span className="row-ico" style={{'--c': 'var(--blue)'} as CSSProperties}>
+										<Icon name="store" size={19} />
+									</span>
+									<span className="main">
+										<b>{r.meta.name}</b>
+										<span className="mono muted" style={{fontSize: 12, wordBreak: 'break-all'}}>{r.url}</span>
+									</span>
+									{removing === r.url ? (
+										<button className="btn small danger" disabled={remove.isPending} onClick={() => remove.mutate(r.url)}>
+											{remove.isPending ? 'Removing…' : 'Remove'}
+										</button>
+									) : (
+										<button className="btn small" onClick={() => setRemoving(r.url)} aria-label={`Remove ${r.meta.name}`}>
+											Remove
+										</button>
+									)}
+								</div>
+							))}
+						</div>
+						{removing && <p className="muted" style={{fontSize: 13, margin: '8px 4px 0'}}>Apps you installed from it keep running; they just won’t get updates.</p>}
+					</>
+				)}
+				{suggestions.length > 0 && (
+					<>
+						<h4 className="list-head">Suggested</h4>
+						<div className="glass group">
+							{suggestions.map((sg) => (
+								<div key={sg.url} className="row static">
+									<span className="row-ico" style={{'--c': 'var(--accent)'} as CSSProperties}>
+										<Icon name="store" size={19} />
+									</span>
+									<span className="main">
+										<b>{sg.name}</b>
+										<span className="muted" style={{fontSize: 13}}>{sg.blurb}</span>
+									</span>
+									<button className="btn small primary" disabled={add.isPending} onClick={() => add.mutate(sg.url)}>
+										{add.isPending && add.variables === sg.url ? 'Adding…' : 'Add'}
+									</button>
+								</div>
+							))}
+						</div>
+					</>
+				)}
+				<h4 className="list-head">Add by link</h4>
+				<form
+					className="store-add"
+					onSubmit={(e) => {
+						e.preventDefault()
+						if (valid) add.mutate(url.trim())
+					}}
+				>
+					<input
+						className="field"
+						type="url"
+						inputMode="url"
+						autoCapitalize="off"
+						autoCorrect="off"
+						spellCheck={false}
+						placeholder="https://github.com/someone/umbrel-app-store"
+						value={url}
+						onChange={(e) => setUrl(e.target.value)}
+						aria-label="Community app store link"
+					/>
+					<button className="btn primary" type="submit" disabled={!valid || add.isPending}>
+						{add.isPending && add.variables === url.trim() ? 'Adding…' : 'Add'}
+					</button>
+				</form>
+				{add.isPending && <p className="muted" style={{fontSize: 13, margin: '8px 4px 0'}}>Downloading the store’s catalog. This can take a minute.</p>}
+			</div>
+		</Sheet>
 	)
 }
 
