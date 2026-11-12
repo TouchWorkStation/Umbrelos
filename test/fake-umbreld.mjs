@@ -295,7 +295,7 @@ export async function startFakeUmbreld({
 			run: fsOp(({url}) => {
 				if (url === OFFICIAL_STORE || communityStores.some((r) => r.url === url)) throw ['BAD_REQUEST', `Repository ${url} already exists`]
 				if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\.git)?$/.test(url)) throw ['INTERNAL_SERVER_ERROR', `Failed to clone ${url}`]
-				const tws = /touchworkstation\/umbrel-app-store/i.test(url)
+				const tws = /touchworkstation\/app-store/i.test(url)
 				communityStores.push({
 					url,
 					meta: tws ? {id: 'touchworkstation', name: 'TouchWorkStation'} : {id: 'community', name: 'Community'},

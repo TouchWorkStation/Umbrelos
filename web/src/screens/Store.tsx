@@ -214,7 +214,7 @@ export function Store({onOpenInstalled, onBack}: {onOpenInstalled: (app: UserApp
 const OFFICIAL_STORE = 'https://github.com/getumbrel/umbrel-apps.git'
 const SUGGESTED_STORES = [
 	{
-		url: 'https://github.com/TouchWorkStation/umbrel-app-store',
+		url: 'https://github.com/TouchWorkStation/app-store',
 		name: 'TouchWorkStation',
 		blurb: 'Google Chrome and Brave browsers that run on your Umbrel and stream to any device.',
 	},
