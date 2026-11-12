@@ -4,6 +4,16 @@ export type Release = {version: string; date: string; title: string; added?: str
 
 export const CHANGELOG: Release[] = [
 	{
+		version: '0.15.2',
+		date: '2026-11-12',
+		title: 'Machine console keyboard',
+		added: ['A paste key in the machine console: press and hold it, then tap Paste, to type your phone’s clipboard into the machine.'],
+		fixed: [
+			'Symbols that need Shift, like | ~ ! @ and capital letters, now type correctly in the machine console instead of coming out as \\ and other wrong keys.',
+			'Removed the L and R mouse buttons from the console. Tap to click, two-finger tap to right-click.',
+		],
+	},
+	{
 		version: '0.15.1',
 		date: '2026-11-12',
 		title: 'Always the latest',

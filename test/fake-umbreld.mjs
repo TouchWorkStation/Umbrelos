@@ -4,6 +4,7 @@
 // Umbrel. It is never shipped or used by the app itself.
 
 import http from 'node:http'
+import {appendFileSync} from 'node:fs'
 import {readFile, readdir} from 'node:fs/promises'
 import {randomBytes} from 'node:crypto'
 import {WebSocketServer} from 'ws'
@@ -790,6 +791,7 @@ function rfbServer(ws, keys) {
 				else return ws.close()
 				if (buf.length < len) return
 				if (type === 4 && buf[1] === 1) keys.push(buf.readUInt32BE(4))
+				if (type === 4 && process.env.FAKE_KEYLOG) appendFileSync(process.env.FAKE_KEYLOG, `${buf[1] ? 'down' : 'up'} ${buf.readUInt32BE(4).toString(16)}\n`)
 				if (type === 5) keys.push({mask: buf[1], x: buf.readUInt16BE(2), y: buf.readUInt16BE(4)})
 				if (type === 3 && !sent) {
 					sent = true
