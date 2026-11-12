@@ -21,6 +21,7 @@ A phone-first interface for umbrelOS. It runs beside your Umbrel, signs in the s
 - **Apps**: search and filters. Tap an app to open it, start, stop, restart, update, view live logs, or uninstall (with confirmation). There is also *Update all*.
 - **Files** (in the dock): your Umbrel as a NAS. See [Files](#files).
 - **App Store** (a tile next to Terminal on Home and in Apps): featured apps with screenshots, a shelf for each category, and search. Get and Open buttons sit on every app. App pages show the version, category, size, gallery and description. Install is guided: it lists the folders and GPU access the app will get, and blocks the install until missing dependencies are installed.
+- **Community app stores** (App Store → ⋯): add or remove stores by link, with a warning that they aren't reviewed by Umbrel. The [TouchWorkStation store](https://github.com/TouchWorkStation/umbrel-app-store) is one tap and adds Google Chrome and Brave browsers that run on your Umbrel and stream to any device.
 - **Machines**: your VMs with their live state. **Create** a machine from umbrelOS's OS catalog (Ubuntu, Debian, Fedora, Alpine, Windows…) with per-OS starting specs for cores, memory and disk. Start, shut down, restart, force stop, delete (with confirmation), and a full-screen touch **console**.
 - **Settings** (gear button): name, password, two-factor authentication, umbrelOS wallpaper, signed-in devices (sign out one or all others), software update with live progress and stable/beta channel, device name, IP address, Wi-Fi, Tor, public DNS, system logs, restart, shut down and factory reset (password + typing RESET). **Appearance** and **Storage** have their own pages (see [Storage](#storage)). Users, backups, static IP and app-store sources link to the umbrelOS dashboard.
 - **System**: live CPU and memory charts, temperature, uptime, a storage breakdown, a ranked "what's using it" list for CPU, memory and storage, umbrelOS update status, and restart or shut down the Umbrel.
@@ -191,7 +192,6 @@ The procedure names and data shapes come from getumbrel/umbrel at the umbrelOS 2
 ## Not yet
 
 - A dedicated Photos timeline (photos browse fine in Files).
-- Community app stores: add or remove them from App Store → ⋯. The [TouchWorkStation store](https://github.com/TouchWorkStation/umbrel-app-store) is one tap and adds Google Chrome and Brave browsers that run on your Umbrel.
 - Compressing into archives, editing Office documents and PDFs, and connecting new network shares from other machines (use the umbrelOS dashboard).
 - VM audio.
 - Settings that change the system (users, Wi-Fi, backups). These are deliberately left out of the allowlist for now.
