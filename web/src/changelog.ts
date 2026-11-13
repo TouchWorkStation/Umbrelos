@@ -4,6 +4,12 @@ export type Release = {version: string; date: string; title: string; added?: str
 
 export const CHANGELOG: Release[] = [
 	{
+		version: '0.16.1',
+		date: '2026-11-12',
+		title: 'Machines on your network',
+		added: ['Machines: a Network switch puts a machine directly on your home network (its own address from your router), so every port on it, like apps running inside it, is reachable without port forwards.'],
+	},
+	{
 		version: '0.16.0',
 		date: '2026-11-12',
 		title: 'Port forwarding for machines',

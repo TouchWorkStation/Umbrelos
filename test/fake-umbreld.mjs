@@ -331,11 +331,17 @@ export async function startFakeUmbreld({
 			},
 		},
 		'machines.list': {kind: 'query', run: () => machines},
+		'machines.restart': {kind: 'mutation', run: () => true},
 		'machines.updateSettings': {
 			kind: 'mutation',
-			run: fsOp(({id, portForwards}) => {
+			run: fsOp(({id, portForwards, networkMode}) => {
 				const m = machines.find((x) => x.id === id)
 				if (!m) throw ['NOT_FOUND', '[machine-not-found]']
+				if (networkMode === 'bridged' && (portForwards ?? m.portForwards ?? []).length) throw ['BAD_REQUEST', '[machine-bridged-port-forwards]']
+				if (networkMode) {
+					m.networkMode = networkMode
+					m.ipAddress = networkMode === 'bridged' ? '192.168.25.140' : '10.203.0.2'
+				}
 				if (portForwards) {
 					if (portForwards.some((f) => f.hostPort < 40000 || f.hostPort > 49999)) throw ['BAD_REQUEST', '[machine-port-out-of-range]']
 					m.portForwards = portForwards

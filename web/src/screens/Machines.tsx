@@ -6,7 +6,9 @@ import {useDesktop} from '../desktop/Desktop'
 import {CreateMachine} from '../CreateMachine'
 import {useAction, useMachines} from '../data'
 import {Icon, type IconName} from '../icons'
-import {KV, Sheet, SheetHeader, StatusPill, haptic, machineStatus, useConfirm} from '../ui'
+import {KV, Segmented, Sheet, SheetHeader, StatusPill, haptic, machineStatus, useConfirm, useToast} from '../ui'
+import {useQueryClient} from '@tanstack/react-query'
+import {mutate} from '../api'
 
 export function osLook(osId = ''): {icon: IconName; bg: string; name: string} {
 	const id = osId.toLowerCase()
@@ -218,6 +220,7 @@ function MachineSheet({machine: m, onClose, onConsole}: {machine: Machine; onClo
 					['IP address', m.ipAddress ?? '–'],
 				]}
 			/>
+			<NetworkMode machine={m} />
 			<PortForwarding machine={m} />
 			<div className="stack">
 				{m.state !== 'stopped' && (
@@ -245,6 +248,67 @@ const PRESETS = [
 	{label: 'SSH', guestPort: 22, hostPort: 42222},
 	{label: 'Web (80)', guestPort: 80, hostPort: 48080},
 ]
+// Behind Umbrel (NAT, reached through port forwards) or on your own network (bridged: its own address
+// from your router, every port reachable, like any other device). Takes effect when it next starts.
+function NetworkMode({machine: m}: {machine: Machine}) {
+	const confirm = useConfirm()
+	const toast = useToast()
+	const qc = useQueryClient()
+	const [busy, setBusy] = useState(false)
+	const mode = m.networkMode ?? 'nat'
+	const change = async (next: 'nat' | 'bridged') => {
+		if (next === mode) return
+		const running = m.state === 'running'
+		const ok = await confirm(
+			next === 'bridged'
+				? {
+						title: `Put ${m.name} on your network?`,
+						body: `It gets its own address from your router, like any other device, so everything on it is reachable without port forwards.${(m.portForwards ?? []).length ? ' Its port forwards are removed.' : ''}${running ? ' It restarts now to switch.' : ' It switches the next time it starts.'}`,
+						confirm: running ? 'Switch and restart' : 'Switch',
+						icon: 'network',
+					}
+				: {
+						title: `Put ${m.name} behind your Umbrel?`,
+						body: `It goes back on Umbrel’s private network and is reached through port forwards.${running ? ' It restarts now to switch.' : ' It switches the next time it starts.'}`,
+						confirm: running ? 'Switch and restart' : 'Switch',
+						icon: 'network',
+					},
+		)
+		if (!ok) return
+		haptic(10)
+		setBusy(true)
+		try {
+			await mutate('machines.updateSettings', {id: m.id, networkMode: next, ...(next === 'bridged' ? {portForwards: []} : {})})
+			if (running) await mutate('machines.restart', {id: m.id})
+			toast(next === 'bridged' ? `${m.name} is joining your network` : `${m.name} is going behind your Umbrel`)
+		} catch (e) {
+			toast((e as Error).message, true)
+		} finally {
+			setBusy(false)
+			qc.invalidateQueries({queryKey: ['machines.list']})
+		}
+	}
+	return (
+		<section className="pf">
+			<h4 className="list-head">Network</h4>
+			<Segmented
+				label="Network"
+				value={mode}
+				options={[
+					{id: 'nat', label: 'Behind Umbrel'},
+					{id: 'bridged', label: 'On your network'},
+				]}
+				onChange={(v) => !busy && change(v)}
+			/>
+			<p className="pf-note">
+				{mode === 'bridged'
+					? `${m.name} has its own address on your network${m.ipAddress ? ` (${m.ipAddress})` : ''}. Open its services at that address.`
+					: `Choose “On your network” if other devices need to reach many ports on ${m.name}, such as apps running inside it.`}
+			</p>
+		</section>
+	)
+}
+
 function PortForwarding({machine: m}: {machine: Machine}) {
 	const action = useAction()
 	const forwards = m.portForwards ?? []
